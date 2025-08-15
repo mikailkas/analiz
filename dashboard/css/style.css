@@ -1,0 +1,480 @@
+/* Custom CSS for Hisse Analiz Dashboard */
+
+/* Root Variables for Theme Colors */
+:root {
+    --primary-color: #2563eb;
+    --secondary-color: #64748b;
+    --success-color: #16a34a;
+    --danger-color: #dc2626;
+    --warning-color: #d97706;
+    --info-color: #0891b2;
+    --light-color: #f8fafc;
+    --dark-color: #1e293b;
+    --background-color: #f1f5f9;
+    --card-background: #ffffff;
+    --text-primary: #1e293b;
+    --text-secondary: #64748b;
+    --border-color: #e2e8f0;
+    --shadow-color: rgba(0, 0, 0, 0.1);
+}
+
+/* Dark Theme Variables */
+.dark-theme {
+    --background-color: #0f172a;
+    --card-background: #1e293b;
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --border-color: #334155;
+    --shadow-color: rgba(0, 0, 0, 0.3);
+}
+
+/* Global Styles */
+* {
+    box-sizing: border-box;
+}
+
+body {
+    background: linear-gradient(135deg, var(--background-color) 0%, #e2e8f0 100%);
+    color: var(--text-primary);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    min-height: 100vh;
+    transition: all 0.3s ease;
+}
+
+/* Navbar Styling */
+.navbar {
+    background: linear-gradient(135deg, var(--primary-color) 0%, #1d4ed8 100%) !important;
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.navbar-brand {
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+}
+
+.btn-outline-light:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Card Styling */
+.card {
+    background: var(--card-background);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+}
+
+.card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 25px -5px var(--shadow-color), 0 10px 10px -5px var(--shadow-color);
+}
+
+.card-header {
+    background: transparent !important;
+    border-bottom: 1px solid var(--border-color);
+    padding: 1.5rem 1.5rem 1rem;
+}
+
+.card-body {
+    padding: 1.5rem;
+}
+
+/* Overview Cards */
+.overview-card {
+    background: linear-gradient(135deg, var(--card-background) 0%, rgba(255, 255, 255, 0.8) 100%);
+    border: none;
+    overflow: hidden;
+    position: relative;
+}
+
+.overview-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 4px;
+    background: linear-gradient(90deg, var(--primary-color), var(--info-color));
+}
+
+.icon-box {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.overview-card .card-title {
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.overview-card .card-subtitle {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Chart Containers */
+.card canvas {
+    max-height: 400px;
+}
+
+/* Table Styling */
+.table {
+    color: var(--text-primary);
+    margin-bottom: 0;
+}
+
+.table-dark {
+    --bs-table-bg: var(--dark-color);
+    background: linear-gradient(135deg, var(--dark-color) 0%, #334155 100%);
+}
+
+.table-hover tbody tr:hover {
+    background-color: rgba(var(--primary-color), 0.05);
+}
+
+.table th {
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--border-color);
+    padding: 1rem 0.75rem;
+}
+
+.table td {
+    padding: 0.75rem;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.sortable {
+    cursor: pointer;
+    position: relative;
+    user-select: none;
+}
+
+.sortable:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.sortable::after {
+    content: '\f0dc';
+    font-family: 'Font Awesome 6 Free';
+    font-weight: 900;
+    position: absolute;
+    right: 8px;
+    opacity: 0.5;
+    font-size: 0.8rem;
+}
+
+.sortable.sort-asc::after {
+    content: '\f0de';
+    opacity: 1;
+}
+
+.sortable.sort-desc::after {
+    content: '\f0dd';
+    opacity: 1;
+}
+
+/* Score Badges */
+.score-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 50px;
+    font-weight: 600;
+    font-size: 0.85rem;
+    display: inline-block;
+    min-width: 60px;
+    text-align: center;
+}
+
+.score-excellent {
+    background: linear-gradient(135deg, #16a34a, #22c55e);
+    color: white;
+}
+
+.score-good {
+    background: linear-gradient(135deg, #0891b2, #06b6d4);
+    color: white;
+}
+
+.score-medium {
+    background: linear-gradient(135deg, #d97706, #f59e0b);
+    color: white;
+}
+
+.score-weak {
+    background: linear-gradient(135deg, #dc2626, #ef4444);
+    color: white;
+}
+
+/* Buttons */
+.btn {
+    border-radius: 8px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    border: none;
+    padding: 0.5rem 1rem;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, var(--primary-color), #1d4ed8);
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+}
+
+.btn-sm {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.875rem;
+}
+
+.btn-detail {
+    background: linear-gradient(135deg, var(--info-color), #0ea5e9);
+    color: white;
+    border-radius: 20px;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.8rem;
+    border: none;
+    transition: all 0.3s ease;
+}
+
+.btn-detail:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(8, 145, 178, 0.3);
+}
+
+/* Form Controls */
+.form-control, .form-select {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background-color: var(--card-background);
+    color: var(--text-primary);
+    transition: all 0.3s ease;
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 0.2rem rgba(37, 99, 235, 0.25);
+    background-color: var(--card-background);
+    color: var(--text-primary);
+}
+
+/* Progress Indicators */
+.progress {
+    height: 8px;
+    border-radius: 4px;
+    background-color: var(--border-color);
+}
+
+.progress-bar {
+    border-radius: 4px;
+}
+
+/* Modal Styling */
+.modal-content {
+    background: var(--card-background);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    box-shadow: 0 25px 50px -12px var(--shadow-color);
+}
+
+.modal-header {
+    border-bottom: 1px solid var(--border-color);
+    background: linear-gradient(135deg, var(--primary-color), #1d4ed8);
+    color: white;
+    border-radius: 16px 16px 0 0;
+}
+
+.modal-body {
+    color: var(--text-primary);
+}
+
+.btn-close {
+    filter: invert(1);
+}
+
+/* Loading Overlay */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    backdrop-filter: blur(5px);
+}
+
+/* Animations */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.fade-in-up {
+    animation: fadeInUp 0.6s ease-out;
+}
+
+.pulse {
+    animation: pulse 2s infinite;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .overview-card .card-title {
+        font-size: 1.8rem;
+    }
+    
+    .icon-box {
+        width: 50px;
+        height: 50px;
+        font-size: 1.2rem;
+    }
+    
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+    
+    .card-body {
+        padding: 1rem;
+    }
+    
+    .container-fluid {
+        padding: 0.5rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .navbar-brand {
+        font-size: 1.1rem;
+    }
+    
+    .overview-card {
+        margin-bottom: 1rem;
+    }
+    
+    .overview-card .card-body {
+        padding: 1rem;
+    }
+    
+    .overview-card .card-title {
+        font-size: 1.5rem;
+    }
+}
+
+/* Custom Chart Tooltips */
+.chartjs-tooltip {
+    background: var(--card-background) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 8px !important;
+    color: var(--text-primary) !important;
+    box-shadow: 0 4px 12px var(--shadow-color) !important;
+}
+
+/* Dark theme specific adjustments */
+.dark-theme .table {
+    color: var(--text-primary);
+}
+
+.dark-theme .form-control::placeholder,
+.dark-theme .form-select option {
+    color: var(--text-secondary);
+}
+
+.dark-theme .overview-card {
+    background: linear-gradient(135deg, var(--card-background) 0%, rgba(30, 41, 59, 0.8) 100%);
+}
+
+/* Success/Error States */
+.text-success {
+    color: var(--success-color) !important;
+}
+
+.text-danger {
+    color: var(--danger-color) !important;
+}
+
+.text-warning {
+    color: var(--warning-color) !important;
+}
+
+.text-info {
+    color: var(--info-color) !important;
+}
+
+/* Stock Code Badges */
+.stock-code {
+    font-weight: 700;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    background: linear-gradient(135deg, var(--primary-color), #1d4ed8);
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    letter-spacing: 0.5px;
+}
+
+/* Sector Tags */
+.sector-tag {
+    background: var(--border-color);
+    color: var(--text-secondary);
+    padding: 0.2rem 0.6rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+/* Performance Indicators */
+.performance-positive {
+    color: var(--success-color);
+    font-weight: 600;
+}
+
+.performance-negative {
+    color: var(--danger-color);
+    font-weight: 600;
+}
+
+.performance-neutral {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
