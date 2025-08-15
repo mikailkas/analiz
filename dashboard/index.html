@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hisse Senedi Analiz Dashboard | Finansal Analiz Paneli</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://unpkg.com/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://unpkg.com/chart.js@3.9.1/dist/chart.min.js"></script>
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://unpkg.com/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="light-theme">
+    
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="#">
+                <i class="fas fa-chart-line me-2"></i>
+                Hisse Analiz Dashboard
+            </a>
+            
+            <div class="d-flex align-items-center">
+                <!-- Theme Toggle -->
+                <button class="btn btn-outline-light me-3" id="themeToggle">
+                    <i class="fas fa-moon" id="themeIcon"></i>
+                </button>
+                
+                <!-- Data Refresh -->
+                <button class="btn btn-outline-light" id="refreshData">
+                    <i class="fas fa-sync-alt me-1"></i>
+                    Verileri Yenile
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container-fluid mt-4">
+        
+        <!-- Overview Cards -->
+        <div class="row mb-4">
+            <div class="col-md-3 mb-3">
+                <div class="card overview-card border-0 shadow-sm h-100">
+                    <div class="card-body d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <h6 class="card-subtitle mb-2 text-muted">Toplam Analiz Edilen</h6>
+                            <h3 class="card-title mb-0" id="totalStocks">---</h3>
+                            <small class="text-success">Hisse Senedi</small>
+                        </div>
+                        <div class="icon-box bg-primary">
+                            <i class="fas fa-chart-bar text-white"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-3 mb-3">
+                <div class="card overview-card border-0 shadow-sm h-100">
+                    <div class="card-body d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <h6 class="card-subtitle mb-2 text-muted">Ortalama Yatırım Skoru</h6>
+                            <h3 class="card-title mb-0" id="avgInvestmentScore">---</h3>
+                            <small class="text-info">/100</small>
+                        </div>
+                        <div class="icon-box bg-info">
+                            <i class="fas fa-star text-white"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-3 mb-3">
+                <div class="card overview-card border-0 shadow-sm h-100">
+                    <div class="card-body d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <h6 class="card-subtitle mb-2 text-muted">En İyi Performans</h6>
+                            <h3 class="card-title mb-0" id="topPerformer">---</h3>
+                            <small class="text-success" id="topPerformerScore">---</small>
+                        </div>
+                        <div class="icon-box bg-success">
+                            <i class="fas fa-trophy text-white"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-3 mb-3">
+                <div class="card overview-card border-0 shadow-sm h-100">
+                    <div class="card-body d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <h6 class="card-subtitle mb-2 text-muted">Ortalama Hedef Getiri</h6>
+                            <h3 class="card-title mb-0" id="avgTargetReturn">---</h3>
+                            <small class="text-warning">%</small>
+                        </div>
+                        <div class="icon-box bg-warning">
+                            <i class="fas fa-percentage text-white"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="row mb-4">
+            <!-- Investment Score Distribution -->
+            <div class="col-lg-6 mb-4">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-header bg-transparent border-0 pb-0">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-chart-histogram me-2 text-primary"></i>
+                            Yatırım Skoru Dağılımı
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="scoreDistributionChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Sector Comparison -->
+            <div class="col-lg-6 mb-4">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-header bg-transparent border-0 pb-0">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-industry me-2 text-info"></i>
+                            Sektörel Karşılaştırma
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="sectorComparisonChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Risk-Return Analysis & Target Price Analysis -->
+        <div class="row mb-4">
+            <!-- Risk-Return Scatter Plot -->
+            <div class="col-lg-6 mb-4">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-header bg-transparent border-0 pb-0">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-chart-scatter me-2 text-success"></i>
+                            Risk-Getiri Analizi (ROE vs F/K)
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="riskReturnChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Target Price Analysis -->
+            <div class="col-lg-6 mb-4">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-header bg-transparent border-0 pb-0">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-bullseye me-2 text-warning"></i>
+                            Hedef Fiyat Analizi
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="targetPriceChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Performance Metrics -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-transparent border-0 pb-0">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-tachometer-alt me-2 text-danger"></i>
+                            Performans Metrikleri
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="performanceMetricsChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Top 10 Stocks Table -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-table me-2 text-primary"></i>
+                            En İyi 10 Hisse Senedi
+                        </h5>
+                        
+                        <!-- Search and Filter Controls -->
+                        <div class="d-flex gap-2">
+                            <input type="text" class="form-control form-control-sm" 
+                                   placeholder="Hisse kodu ara..." id="stockSearch" style="width: 200px;">
+                            <select class="form-select form-select-sm" id="sectorFilter" style="width: 200px;">
+                                <option value="">Tüm Sektörler</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0" id="stocksTable">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th class="sortable" data-sort="rank">Sıra</th>
+                                        <th class="sortable" data-sort="code">Hisse Kodu</th>
+                                        <th class="sortable" data-sort="sector">Sektör</th>
+                                        <th class="sortable" data-sort="score">Yatırım Skoru</th>
+                                        <th class="sortable" data-sort="price">Fiyat (TL)</th>
+                                        <th class="sortable" data-sort="target">Hedef Fiyat</th>
+                                        <th class="sortable" data-sort="potential">Potansiyel (%)</th>
+                                        <th class="sortable" data-sort="roe">ROE (%)</th>
+                                        <th class="sortable" data-sort="pe">F/K</th>
+                                        <th class="sortable" data-sort="pb">PD/DD</th>
+                                        <th>Detay</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="stocksTableBody">
+                                    <!-- Data will be populated by JavaScript -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Stock Detail Modal -->
+    <div class="modal fade" id="stockDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="stockDetailTitle">Hisse Detayları</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="stockDetailBody">
+                    <!-- Stock details will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Spinner -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Yükleniyor...</span>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://unpkg.com/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Custom JavaScript -->
+    <script src="js/main.js"></script>
+</body>
+</html>
