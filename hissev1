@@ -1,1267 +1,794 @@
-# =============================================================================
-# GELİŞMİŞ FİNANSAL ANALİZ VE DEĞERLEME SİSTEMİ (BACKTEST EKLENDİ)
-# Amaç: Hisse senedi yatırım kararları için kapsamlı analiz + geçmişe dönük test
-# Özellikler: Finansal sağlık, gelecek performans, değerleme, hedef fiyat + backtest
-# =============================================================================
-# 1. KURULUM VE KÜTÜPHANELER
-# =============================================================================
-!pip install aiohttp nest_asyncio yfinance openpyxl pandas numpy matplotlib seaborn scikit-learn -q
+# 📊 TCMB EVDS API ile Türkiye Ekonomik Döngü Analizi
+# Google Colab için hazırlanmıştır.
+!pip install openpyxl matplotlib pandas seaborn plotly scipy pillow --quiet
+import os
+import io
 import pandas as pd
 import numpy as np
-import asyncio
-import aiohttp
-import time
-import logging
-from datetime import datetime, timedelta
-import nest_asyncio
-import io
-import json
-from IPython.display import display, HTML, clear_output
-import warnings
-from pathlib import Path
-import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side, NamedStyle
-from openpyxl.utils.dataframe import dataframe_to_rows
-from openpyxl.formatting.rule import ColorScaleRule, DataBarRule
-import yfinance as yf
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-import pickle
-import os
-from scipy import stats
-# Ayarlar
+import plotly.graph_objects as go
+import plotly.subplots as sp
+import requests
+import json
+from plotly.subplots import make_subplots
+from scipy.signal import savgol_filter
+from datetime import datetime, timedelta
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl import load_workbook
+import warnings
 warnings.filterwarnings('ignore')
-nest_asyncio.apply()
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-# Stil ayarları
+
+# ==============================
+# 1. API KEY AYARI VE KONFİGÜRASYON
+# ==============================
+api_key = "fylcsyNNCR"   # TCMB EVDS API key
+headers = {"key": api_key}  # Sadece key gönderiliyor
+
+# Türkçe karakterleri matplotlib için ayarla
+plt.rcParams['font.family'] = ['DejaVu Sans']
+plt.rcParams['figure.figsize'] = (15, 10)
 plt.style.use('seaborn-v0_8')
-sns.set_palette("husl")
-print("✅ Gelişmiş Finansal Analiz Sistemi kuruldu!")
-# =============================================================================
-# 2. GELİŞMİŞ FİNANSAL ANALİZ SINIFI (BACKTEST İLE GENİŞLETİLDİ)
-# =============================================================================
-class AdvancedFinancialAnalyzer:
-    def __init__(self):
-        # Finansal tablo kalemleri - genişletilmiş
-        self.financial_items = {
-            'aktif_toplam': ['Aktif Toplamı', 'AKTIF TOPLAMI', 'Toplam Aktifler', 'TOPLAM VARLIKLAR'],
-            'net_satis': ['Net Satışlar', 'NET SATIŞLAR', 'Satış Gelirleri', 'Hasılat', 'HASILAT'],
-            'satis_maliyeti': ['Satışların Maliyeti', 'SATIŞLARIN MALİYETİ', 'Satış Maliyeti'],
-            'brut_kar': ['Brüt Kâr', 'BRÜT KAR', 'Brüt Satış Karı', 'BRÜT SATIŞ KARI'],
-            'faaliyet_giderleri': ['Faaliyet Giderleri', 'FAALİYET GİDERLERİ', 'Genel Yönetim Giderleri'],
-            'faaliyet_kari': ['Faaliyet Karı', 'FAALİYET KARI', 'Esas Faaliyet Karı', 'ESAS FAALİYET KARI',
-                             'FAALİYET KÂRI', 'ESAS FAALİYET KÂRI'],
-            'finansman_gideri': ['Finansman Giderleri', 'FİNANSMAN GİDERLERİ'],
-            'vergi_oncesi_kar': ['Vergi Öncesi Kar', 'VERGİ ÖNCESİ KAR', 'Vergi Öncesi Faaliyet Karı'],
-            'net_kar': ['Net Kar', 'NET KAR', 'Dönem Karı', 'DÖNEM KARI', 'Net Dönem Karı'],
-            'ozsermaye': ['Özkaynaklar', 'ÖZKAYNAKLAR', 'Toplam Özkaynaklar', 'TOPLAM ÖZKAYNAKLAR',
-                          'Özkaynaklar Toplamı', 'ÖZKAYNAKLAR TOPLAMI', 'Toplam Özkaynak', 'TOPLAM ÖZKAYNAK',
-                          'Ana Ortaklığa Ait Özkaynaklar', 'ANA ORTAKLIĞA AİT ÖZKAYNAKLAR'],
-            'odenmis_sermaye': ['Ödenmiş Sermaye', 'ÖDENMİŞ SERMAYE', 'Ödenmiş Sermaye Tutarı'],
-            'kisa_vadeli_yuk': ['Kısa Vadeli Yükümlülükler', 'KISA VADELİ YÜKÜMLÜLÜKLER'],
-            'uzun_vadeli_yuk': ['Uzun Vadeli Yükümlülükler', 'UZUN VADELİ YÜKÜMLÜLÜKLER'],
-            'toplam_yuk': ['Toplam Yükümlülükler', 'TOPLAM YÜKÜMLÜLÜKLER', 'Yükümlülükler Toplamı'],
-            'nakit': ['Nakit ve Nakit Benzerleri', 'NAKİT VE NAKİT BENZERLERİ', 'Nakit Varlıklar'],
-            'stoklar': ['Stoklar', 'STOKLAR'],
-            'ticari_alacaklar': ['Ticari Alacaklar', 'TİCARİ ALACAKLAR', 'Kısa Vadeli Ticari Alacaklar'],
-            'genel_yonetim_giderleri': ['Genel Yönetim Giderleri (-)','GENEL YÖNETİM GİDERLERİ'],
-            'Pazarlama_Satış_ve_Dağıtım_Giderleri' :['Pazarlama, Satış ve Dağıtım Giderleri (-)','PAZARLAMA SATIŞ VE DAĞITIM GİDERLERİ'],
-            'Araştırma_ve_Geliştirme_Giderleri (-)' : ['Araştırma ve Geliştirme Giderleri (-)','ARAŞTIRMA VE GELİŞTİRME GİDERLERİ'],
-            'Amortisman_&_İtfa_Payları' : [ 'Amortisman & İtfa Payları']
-        }
-        # Sektörel gruplar
-        self.sektoral_groups = {
-            'BANKALAR': ['AKBNK', 'GARAN', 'ISCTR', 'HALKB', 'VAKBN', 'YKBNK'],
-            'HOLDİNG': ['KCHOL', 'SAHOL', 'DOHOL', 'AGHOL', 'ALARK', 'ATSYH', 'AVHOL', 'BERA', 'BLCYT', 'BRYAT', 'COSMO', 'DAGHL', 'DENGE', 'YESIL', 'ECZYT', 'ECILC', 'EUHOL', 'GLRYH', 'GLYHO', 'GSDHO', 'IEYHO', 'IHLAS', 'IHYAY', 'ISBIR', 'KERVN', 'MARKA', 'METRO', 'MMCAS', 'MZHLD', 'NTHOL', 'OSTIM', 'OYLUM', 'POLHO', 'RALYH', 'TKFEN', 'UFUK', 'VERUS', 'OTTO', 'INVEO', 'UNLU', 'HEDEF', 'INVES', 'IZINV', 'KLRHO', 'UMPAS', 'LRSHO', 'BINHO'],
-            'ENERJİ ÜRETİM': ['AKENR', 'GWIND', 'AKSEN', 'AKSUE', 'ALARK', 'AYEN', 'ZOREN', 'YAYLA', 'ENJSA', 'AYDEM', 'CANTE', 'NATEN', 'ODAS', 'PRKME', 'NTGAZ', 'BIOEN', 'CONSE', 'MAGEN', 'ESEN', 'PAMEL', 'BASGZ', 'MANAS', 'ARASE', 'HUNER', 'ZEDUR', 'AHGAZ', 'AKFYE', 'IZENR', 'TATEN', 'ENERY', 'CATES', 'MOGAN', 'ENTRA', 'LYDYE', 'BIGEN', 'ENDAE', 'A1YEN'],
-            'TEKNOLOJİ ÜRÜN TİCARETİ': ['ARENA', 'AZTEK', 'DESPC', 'DGATE', 'INDES', 'MOBTL', 'PENTA', 'TKNSA', 'INGRM'],
-            'TAŞ TOPRAK': ['AFYON', 'AKCNS', 'BOBET', 'BASCM', 'BSOKE', 'BTCIM', 'CIMSA', 'CMBTN', 'CMENT', 'GOLTS', 'KONYA', 'NIBAS', 'NUHCM', 'OYAKC', 'BUCIM', 'MARBL', 'LMKDC'],
-            'SPOR': ['BJKAS', 'FENER', 'GSRAY', 'TSPOR'],
-            'TOPTAN PARAKENDE': ['ARENA', 'AVTUR', 'BIMAS', 'BIZIM', 'CRFSA', 'DESPC', 'DGATE', 'DOAS', 'ETILR', 'INDES', 'INTEM', 'PENTA', 'MEPET', 'MGROS', 'PSDTC', 'SANKO', 'SOKM', 'TGSAS', 'TKNSA', 'KIMMR', 'MOBTL', 'GMTAS', 'AZTEK', 'INGRM', 'EBEBK', 'DCTTR', 'LYDHO'],
-            'VARLIK YÖNETİMİ': ['GLCVY', 'BRKVY', 'SMRVA'],
-            'TURİZM': ['GRSEL', 'AYCES', 'KSTUR', 'MAALT', 'MARTI', 'MERIT', 'METUR', 'GZNMI', 'PKENT', 'ZEDUR', 'TUREX', 'TEKTU', 'ULAS', 'MEPET'],
-            'TARIM HAYVANCILIK': ['YAPRK', 'OZSUB', 'DCTTR', 'CEMZY'],
-            'SİGORTA': ['AKGRT', 'ANSGR', 'RAYSG', 'TURSG'],
-            'OTOMOTİV YAN SANAYİ': ['BALAT', 'BFREN', 'BRISA', 'DITAS', 'DOKTA', 'EGEEN', 'FMIZP', 'GOODY', 'JANTS', 'KATMR', 'PARSN', 'YIGIT', 'BAHKM'],
-            'SAVUNMA': ['ASELS', 'OTKAR', 'PAPIL', 'SDTTR', 'ALTINY', 'ONRYT', 'KATMR', 'PATEK'],
-            'MOBİLYA DEKAROSYON': ['YONGA', 'YATAS', 'ORMA', 'SUMAS', 'DGNMO', 'GENTS', 'KLSYN', 'EUREN'],
-            'OTOMOTİV': ['ASUZU', 'DOAS', 'FROTO', 'KARSN', 'OTKAR', 'TMSN', 'TOASO', 'TTRAK', 'ESCAR', 'PLTUR'],
-            'MENKUL KIYMET YATIRIM': ['ATLAS', 'ETYAT', 'EUKYO', 'EUYO', 'GRNYO', 'ISYAT', 'MTRYO', 'OYAYO', 'VKFYO'],
-            'METAL EŞYA MAKİNE': ['GEREL', 'FORMT', 'KATMR', 'KLMSN', 'BMSCH', 'MAKTK', 'PRKAB', 'SAFKR', 'ULUSE', 'VESBE', 'VESTL', 'ERCB', 'IMASM', 'HKTM', 'SNICA'],
-            'KIMYA PLASTİK': ['ACSEL', 'ISKPL', 'AKSA', 'ALKIM', 'KLKIM', 'AYGAZ', 'BAGFS', 'BRISA', 'DYOBY', 'EGGUB', 'EGPRO', 'EKIZ', 'EPLAS', 'GOODY', 'GUBRF', 'HEKTS', 'IZFAS', 'KORDS', 'MEGAP', 'MRSHL', 'PETKM', 'POLHO', 'SANFM', 'SASA', 'SEKUR', 'SEYKM', 'SISE', 'SODSN', 'TMPOL', 'TRCAS', 'TUPRS', 'MERCN', 'CASA', 'ISSEN', 'RNPOL', 'DNISI', 'KMPUR', 'KOPOL', 'TARKM', 'EFORC', 'BAHKM'],
-            'MADENCİLİK': ['IPEKE', 'KOZAA', 'KOZAL', 'SARKY', 'CVKMD', 'VSNMD', 'RUZYE'],
-            'KAĞIT ÜRÜNLERİ': ['ALKA', 'TEZOL', 'DOBUR', 'DURDO', 'VKING', 'HURGZ', 'IHGZT', 'KARTN', 'PRZMA', 'SAMAT', 'KONKA', 'MNDTR', 'LILAK'],
-            'İNŞAAT': ['ANELE', 'GESAN', 'BRKSN', 'CMBTN', 'YYAPI', 'YBTAS', 'ENKAI', 'IHLGM', 'BRLSM', 'ORGE', 'SANEL', 'TKFEN', 'TURGG', 'PAMEL', 'GLRMK', 'PNLSN', 'EUREN', 'AKFIS'],
-            'İLAÇ': ['DEVA', 'ECILC', 'GENIL', 'TRILC', 'LKMNH', 'MPARK', 'RTALB', 'SELEC', 'SEYKM', 'EGEPO', 'ANGEN', 'MEDTR', 'ONCSM', 'TNZTP'],
-            'İMALAT': ['MRSHL', 'EMKEL', 'KARSN', 'KARTN', 'BOSSA', 'FROTO', 'KRDMA', 'TCKRC', 'KORDS', 'BRISA', 'BURCE', 'SASA', 'AKSA', 'JANTS', 'FMIZP', 'DOFER', 'ARCLK', 'BURVA', 'MEKAG', 'BRKO', 'BRMEN', 'KLMSN', 'BALAT', 'EPLAS', 'KATMR', 'AYGAZ', 'GENTS', 'BNTAS', 'BVSAN', 'GIPTA', 'GUBRF', 'KLKIM', 'KCAER', 'HATSN', 'EREGL', 'AYES', 'RNPOL', 'ALCAR', 'BRSAN', 'DMSAS', 'MAKIM', 'POLTK', 'ALVES', 'FORMT', 'ADEL', 'GEDZA', 'ALKIM', 'ASELS', 'BAYRK', 'ERBOS', 'HKTM', 'BFREN', 'DERHL', 'GEREL', 'DOGUB', 'ARZUM', 'SAFKR', 'PNLSN', 'KAPLM', 'KBORU', 'TOASO', 'DOKTA', 'HEKTS', 'SNICA', 'ORMA', 'CUSAN', 'OZATD', 'IHEVA', 'PRKAB', 'SUMAS', 'YKSLN', 'SILVR', 'ISDMR', 'IZFAS', 'IZDMC', 'TUCLK', 'CEMAS', 'ULUSE', 'CEMTS'],
-            'HABERLEŞME': ['TCELL', 'ALCTL', 'KRONT', 'NETAS', 'TTKOM', 'IHAAS'],
-            'GİYİM TEKSTİL': ['DAGI', 'DERIM', 'DESA', 'MAVI', 'MNDRS', 'RODRG', 'ROYAL', 'SANKO', 'SUWEN', 'VAKKO', 'KOTON', 'DERHL', 'ARSAN', 'ATEKS', 'BAYRK', 'BOSSA', 'BRKO', 'BRMEN', 'DIRIT', 'YUNSA', 'HATEK', 'KRTEK', 'LUKSK', 'RODRG', 'SKTAS', 'SNPAM', 'ENSRI', 'SUNTK', 'RUBNS', 'BLCYT', 'SONME', 'ARTMS', 'SANKO'],
-            'GİRİŞİM SERMAYESİ': ['GOZDE', 'HDFGS', 'HUBVC', 'ISGSY', 'VERTU', 'PRDGS', 'ICUGS', 'BULGS'],
-            'GAYRİMENKUL': ['AGYO', 'AKFGY', 'AKMGY', 'AKSGY', 'ALGYO', 'ATAGY', 'AVGYO', 'DGGYO', 'DZGYO', 'YGYO', 'YGGYO', 'EKGYO', 'HLGYO', 'IDGYO', 'IHLGM', 'ISGYO', 'KLGYO', 'KRGYO', 'KUYAS', 'MRGYO', 'MSGYO', 'NUGYO', 'OZGYO', 'OZKY', 'PAGYO', 'PEKGY', 'RYGYO', 'SNGYO', 'SRVGY', 'TDGYO', 'TRGYO', 'ZRGYO', 'TSGYO', 'VKGYO', 'KZBGY', 'PSGYO', 'KGYO', 'DAPGM', 'SEGYO', 'ADESE', 'EYGYO', 'FZLGY', 'ASGYO', 'KZGYO', 'ADGYO', 'MHRGY', 'VRGYO', 'BEGYO', 'SURGY', 'AVPGY', 'RGYAS', 'PEHOL', 'LYDHO', 'AHSGY', 'EDIP', 'EGEGY'],
-            'FİN. KİRALAMA': ['ISFIN', 'QNBFL', 'SEKFK', 'VAKFN', 'QNBFK'],
-            'FAKTORİNG': ['CRDFA', 'GARFA', 'LIDFA', 'ULUFA', 'DSTFK'],
-            'ENERJİ TEKNOLOJİ': ['SMRTG', 'ALFAS', 'ASTOR', 'EUPWR', 'CWENE', 'GESAN', 'YEOTK', 'KONTR', 'BRLSM', 'ORGE', 'SAYAS', 'EKOS', 'ONRYT', 'KLYPV'],
-            'EMEKLİLİK': ['ANHYT', 'AGESA'],
-            'DESTEK VE HİZMET': ['BEYAZ', 'CEOEM', 'AKYHO', 'FLAP', 'SNKRN', 'MACKO', 'HRKET', 'PCILT', 'DOCO'],
-            'DAYANIKLI TÜKETİM MALLARI': ['ALCAR', 'ARCLK', 'SILVR', 'VESBE', 'VESTL', 'ARZUM', 'IHEVA', 'KLMSN'],
-            'CAM SERAMİK': ['QUAGR', 'EGSER', 'KUTPO', 'SISE', 'USAK', 'BIENY', 'KLSER', 'CGCAM', 'SERNT'],
-            'BİLİŞİM VE YAZILIM': ['ARDYZ', 'ARENA', 'ATATP', 'VBTYZ', 'DESPC', 'DGATE', 'ESCOM', 'FONET', 'KONTR', 'MTRKS', 'INDES', 'PENTA', 'KAREL', 'KFEIN', 'KRONT', 'LINK', 'LOGO', 'NETAS', 'PAPIL', 'PKART', 'SMART', 'EDATA', 'MIATK', 'MOBTL', 'YEOTK', 'HTTBT', 'OBASE', 'AZTEK', 'INGRM', 'FORTE', 'REEDR', 'PATEK', 'ODINE', 'SKYLP', 'ONRYT', 'INTEK'],
-            'ARACI KURUM': ['OYYAT', 'GEDIK', 'GLBMD', 'INFO', 'ISMEN', 'OSMEN', 'TERA', 'A1CAP', 'SKYMD'],
-            'ANA METAL': ['BRSAN', 'BURCE', 'BURVA', 'CELHA', 'CEMAS', 'CEMTS', 'CUSAN', 'DMSAS', 'DOKTA', 'YKSLN', 'ERBOS', 'EREGL', 'ISDMR', 'IZMDC', 'KRDMA', 'KRDMB', 'KRDMD', 'BMSCH', 'POLTK', 'SARKY', 'TUCLK', 'ERCB', 'BMSTL', 'KCAER', 'KBORU', 'MEGMT', 'KOCMT', 'OZYSR'],
-            'AMBALAJ': ['BNTAS', 'BAKAB', 'DURDO', 'EMNIS', 'GEDZA', 'KAPLM', 'SEKUR', 'KRPLS', 'BARMA', 'MNDTR', 'OZRDN'],
-            'GIDA PERAKENDE': ['MGROS', 'VESTL', 'BIMAS', 'BIZIM', 'CRFSA', 'GMTAS', 'SOKM', 'KIMMR', 'MOPAS'],
-            'GIDA VE İÇECEK': ['AEFES', 'AVOD', 'BANVT', 'ORCAY', 'CCOLA', 'DARDL', 'ARMGD', 'ERSU', 'FADE', 'FRIGO', 'KENT', 'KNFRT', 'KRSTL', 'MERKO', 'PENGD', 'PETUN', 'PINSU', 'SELGD', 'TATGD', 'TBORG', 'TUKAS', 'ULKER', 'ULUUN', 'VANGD', 'KRVGD', 'SELVA', 'ELITE', 'YYLGD', 'KUVVA', 'SOKE', 'GOKNR', 'EKSUN', 'BIGCH', 'KAYSE', 'ATAKP', 'OFSYM', 'BYDNR', 'OYLUM', 'DMRGD', 'TABGD', 'AGROT', 'BORSK', 'OBAMS', 'ALKLC', 'SEGMN', 'EFORC', 'GUNDG', 'CEMZY', 'DURKN', 'GRTHO', 'BALSU', 'BESLR'],
-            'ULAŞTIRMA': ['THYAO', 'TAVHL', 'CLEBI', 'GSDDE', 'LIDER', 'PGSUS', 'RYSAS', 'TLMAN', 'PLTUR', 'PASEU', 'HOROZ', 'HRKET', 'BINBN']
-        }
-        # Hesaplama formülleri - genişletilmiş
-        self.ratios = {
-            'roe': lambda data: self.safe_divide(data.get('net_kar', 0), data.get('ozsermaye', 0)) * 100,
-            'roa': lambda data: self.safe_divide(data.get('net_kar', 0), data.get('aktif_toplam', 0)) * 100,
-            'ROIC': lambda d: self.safe_divide(d.get('faaliyet_kari', 0),d.get('aktif_toplam', 0) - d.get('kisa_vadeli_yuk', 0)) * 100,
-            'EBITDA_MARJI': lambda d: self.safe_divide(
-                d.get('faaliyet_kari', 0) + d.get('Amortisman_&_İtfa_Payları', 0),
-                d.get('net_satis', 0)
-            ) * 100,
-            'net_kar_marji': lambda data: self.safe_divide(data.get('net_kar', 0), data.get('net_satis', 0)) * 100,
-            'brut_kar_marji': lambda data: self.safe_divide(data.get('brut_kar', 0), data.get('net_satis', 0)) * 100,
-            'faaliyet_kar_marji': lambda data: self.safe_divide(data.get('faaliyet_kari', 0), data.get('net_satis', 0)) * 100,
-            'aktif_devir_hizi': lambda data: self.safe_divide(data.get('net_satis', 0), data.get('aktif_toplam', 0)),
-            'ozsermaye_carpani': lambda data: self.safe_divide(data.get('aktif_toplam', 0), data.get('ozsermaye', 0)),
-            'borc_orani': lambda data: self.safe_divide((data.get('kisa_vadeli_yuk', 0) + data.get('uzun_vadeli_yuk', 0)), data.get('aktif_toplam', 0)) * 100,
-            'likidite_orani': lambda data: self.safe_divide(
-                data.get('nakit', 0) + data.get('ticari_alacaklar', 0) + data.get('stoklar', 0),
-                data.get('kisa_vadeli_yuk', 0)
-            ),
-            'giderler': lambda data: data.get('genel_yonetim_giderleri', 0) +
-                                    data.get('Pazarlama_Satış_ve_Dağıtım_Giderleri', 0) +
-                                    data.get('Araştırma_ve_Geliştirme_Giderleri (-)', 0),
-            'nakit_orani': lambda data: self.safe_divide(data.get('nakit', 0), data.get('kisa_vadeli_yuk', 0)),
-            'asit_test': lambda data: self.safe_divide(
-                data.get('nakit', 0) + data.get('ticari_alacaklar', 0),
-                data.get('kisa_vadeli_yuk', 0)
-            ),
-            'pd_dd': lambda data: self.safe_divide(data.get('market_cap', 0), data.get('ozsermaye', 0)),
-            'fk': lambda data: self.safe_divide(data.get('current_price', 0), data.get('eps', 0)),
-            'ev_ebitda': lambda data: self.safe_divide(data.get('market_cap', 0), data.get('faaliyet_kari', 0) + data.get('Amortisman_&_İtfa_Payları', 0)),
-            'sermaye_karliligi': lambda data: self.safe_divide(data.get('net_kar', 0), data.get('odenmis_sermaye', 0)) * 100,
-            'faaliyet_kari_marji': lambda data: self.safe_divide(data.get('faaliyet_kari', 0), data.get('net_satis', 0)) * 100,
-        }
-        # Önbellek ve rate limiting için değişkenler
-        self.cache = {}
-        self.cache_file = "financial_cache.pkl"
-        self.last_call_time = {}
-        self.rate_limit_delay = 0.5  # 500ms between API calls
-        self.results = []
+# ==============================
+# 2. EKONOMİK DÖNGÜ SERİLERİNİ TANIMLA (KILAVUZA GÖRE)
+# ==============================
+# KILAVUZDA OLAN SERİLER KULLANILDI
+series_config = {
+    "TÜFE Aylık (%)": {
+        "code": "TP.FG.J0",
+        "frequency": "5",  # Aylık
+        "scale": 1
+    },
+    "TÜFE Yıllık (%)": {
+        "code": "TP.FG.J0-3",
+        "frequency": "5",  # Aylık
+        "scale": 1
+    },
+    "Politika Faizi (%)": {
+        "code": "TP.TRY.MT04",
+        "frequency": "6",  # Aylık
+        "scale": 1
+    },
+    "İşsizlik Oranı (%)": {
+        "code": "TP.TIG08",
+        "frequency": "1",  # 3 aylık
+        "scale": 1
+    },
+    "İstihdam Oranı (%)": {
+        "code": "TP.TIG07",
+        "frequency": "1",  # 3 aylık
+        "scale": 1
+    },
+    "Sanayi Üretim Endeksi": {
+        "code": "TP.TSANAYMT2021.Y14",
+        "frequency": "6",  # Aylık
+        "scale": 0.01  # Milyon -> birim
+    },
+    "Kapasite Kullanım (%)": {
+        "code": "TP.KKO2.IS.TOP",
+        "frequency": "5",  # Aylık
+        "scale": 1
+    },
+    "Tüketici Güven Endeksi": {
+        "code": "TP.TG2.Y01",
+        "frequency": "5",  # Aylık
+        "scale": 1  # Milyon -> birim
+    },
+    "Reel Kesim Güven Endeksi": {
+        "code": "TP.GY1.N2",
+        "frequency": "5",  # Aylık
+        "scale": 1
+    },
+    "USD/TL": {
+        "code": "TP.DK.USD.S.YTL",
+        "frequency": "1",  # Aylık
+        "scale": 1  # Bin -> birim
+    },
+    "BIST 100": {
+        "code": "TP.MK.F.BILESIK",
+        "frequency": "1",  # Aylık
+        "scale": 1
+    },
+    "Toplam Kredi Hacmi": {
+        "code": "TP.KREDI.L001",
+        "frequency": "5",  # Aylık
+        "scale": 0.000001  # Milyon TL -> TL
+    },
+    "İhracat": {
+        "code": "TP.IHRACATBEC.9999",
+        "frequency": "5",  # Aylık
+        "scale": 0.000001  # Milyon $ -> $
+    },
+    "İthalat": {
+        "code": "TP.ITHALATBEC.9999",
+        "frequency": "5",  # Aylık
+        "scale": 0.000001  # Milyon $ -> $
+    },
+}
 
-        # Önbelleği yükle
-        self.load_cache()
-
-    def load_cache(self):
-        """Önbelleği dosyadan yükle"""
-        try:
-            if os.path.exists(self.cache_file):
-                with open(self.cache_file, 'rb') as f:
-                    self.cache = pickle.load(f)
-                logger.info(f"Önbellek yüklendi: {len(self.cache)} kayıt")
-        except Exception as e:
-            logger.error(f"Önbellek yüklenemedi: {str(e)}")
-            self.cache = {}
-    def save_cache(self):
-        """Önbelleği dosyaya kaydet"""
-        try:
-            with open(self.cache_file, 'wb') as f:
-                pickle.dump(self.cache, f)
-        except Exception as e:
-            logger.error(f"Önbellek kaydedilemedi: {str(e)}")
-
-    def safe_divide(self, numerator, denominator):
-        """Güvenli bölme işlemi"""
-        if denominator == 0 or pd.isna(denominator) or pd.isna(numerator):
-            return 0
-        try:
-            return float(numerator) / float(denominator)
-        except:
-            return 0
-    def validate_financial_data(self, data):
-        """Finansal verilerin tutarlılığını kontrol et"""
-        warnings = []
-        # Muhasebe dengesi kontrolü
-        if data.get('aktif_toplam', 0) < (data.get('ozsermaye', 0) + data.get('toplam_yuk', 0)):
-            warnings.append("⚠️ Muhasebe dengesi uyuşmuyor: Aktif ≠ Özkaynak + Yükümlülükler")
-        # Sıfır satışla kar kontrolü
-        if data.get('net_satis', 0) == 0 and data.get('net_kar', 0) > 0:
-            warnings.append("⚠️ Sıfır satışla kar elde edilmiş")
-        # Negatif özkaynak kontrolü
-        if data.get('ozsermaye', 0) < 0:
-            warnings.append("⚠️ Negatif özkaynak tespit edildi")
-        # Yüksek borç oranı kontrolü
-        borc_orani = self.safe_divide(
-            data.get('kisa_vadeli_yuk', 0) + data.get('uzun_vadeli_yuk', 0),
-            data.get('aktif_toplam', 0)
-        ) * 100
-        if borc_orani > 80:
-            warnings.append(f"⚠️ Çok yüksek borç oranı: %{borc_orani:.1f}")
-        return warnings
-    async def get_financial_data_api(self, session, ticker, period_config):
-        """API'den finansal veri çeker - rate limiting ile"""
-        # Rate limiting kontrolü
-        now = time.time()
-        if ticker in self.last_call_time and (now - self.last_call_time[ticker]) < self.rate_limit_delay:
-            await asyncio.sleep(self.rate_limit_delay - (now - self.last_call_time[ticker]))
-        # Önbellek kontrolü
-        cache_key = f"{ticker}_{period_config['year1']}_{period_config['period1']}"
-        if cache_key in self.cache:
-            logger.debug(f"{ticker} için önbellekten veri alındı")
-            return self.cache[cache_key]
-        url = (f"https://www.isyatirim.com.tr/_layouts/15/IsYatirim.Website/Common/Data.aspx/MaliTablo"
-               f"?companyCode={ticker}&exchange=TRY&financialGroup=XI_29"
-               f"&year1={period_config['year1']}&period1={period_config['period1']}"
-               f"&year2={period_config['year2']}&period2={period_config['period2']}"
-               f"&year3={period_config['year3']}&period3={period_config['period3']}"
-               f"&year4={period_config['year4']}&period4={period_config['period4']}"
-               f"&_={int(time.time() * 1000)}")
-        try:
-            async with session.get(url, timeout=30) as response:
-                self.last_call_time[ticker] = time.time()
-                if response.status == 200:
-                    json_data = await response.json()
-                    # Önbelleğe kaydet
-                    self.cache[cache_key] = json_data
-                    return json_data
-                else:
-                    logger.error(f"{ticker} için API hatası: {response.status}")
+# ==============================
+# 3. VERİLERİ ÇEK VE TEMİZLE (TAMAMEN YENİLENDİ)
+# ==============================
+def try_get_series(code, start_date, end_date, frequency="1"):
+    """EVDS API'den tek bir seri için veri çeker (tarih formatı sorununu çözer)"""
+    try:
+        base_url = "https://evds2.tcmb.gov.tr/service/evds/"
+        url = f"{base_url}series={code}&startDate={start_date}&endDate={end_date}&type=json&frequency={frequency}"
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                
+                if isinstance(data, dict) and 'error' in data:
+                    print(f"❌ API Hatası: {data['error']}")
                     return None
-        except aiohttp.ClientError as e:
-            logger.error(f"{ticker} API bağlantı hatası: {str(e)}")
-            return self.get_cached_data(ticker, period_config)
-        except Exception as e:
-            logger.error(f"{ticker} API hatası: {str(e)}")
-            return None
-    def get_cached_data(self, ticker, period_config):
-        """Önbellekten veri döndür"""
-        cache_key = f"{ticker}_{period_config['year1']}_{period_config['period1']}"
-        return self.cache.get(cache_key, None)
-    async def get_market_data(self, ticker, historical_date=None):
-        """Yahoo Finance üzerinden piyasa değeri ve EPS verilerini çeker"""
-        try:
-            stock = yf.Ticker(f"{ticker}.IS")
-            if historical_date:
-                # Tarih aralığını belirle
-                end_date = datetime.strptime(historical_date, '%Y-%m-%d')
-                start_date = end_date - timedelta(days=365)
-                # Geçmiş verileri al
-                hist = stock.history(start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))
-                if hist.empty:
-                    logger.warning(f"{ticker} için {historical_date} tarihinde veri bulunamadı")
-                    return {
-                        'market_cap': 0,
-                        'eps': 0,
-                        'current_price': 0,
-                        'book_value_per_share': 0,
-                        'price_trend': 0
-                    }
-                # En son tarihteki verileri al
-                last_row = hist.iloc[-1]
-                current_price = last_row['Close']
-                # Piyasa değeri tahmini (o dönemdeki hisse sayısı * fiyat)
-                # Not: Bu bir tahmindir, kesin bilgi için daha detaylı veri gerekir
-                shares_outstanding = stock.info.get('sharesOutstanding', 0)
-                if shares_outstanding == 0:
-                    # Alternatif yöntem: mevcut piyasa değeri ve mevcut fiyatı kullan
-                    current_market_cap = stock.info.get('marketCap', 0)
-                    current_price_now = stock.info.get('currentPrice', 0)
-                    if current_price_now > 0:
-                        shares_outstanding = current_market_cap / current_price_now
-                market_cap = shares_outstanding * current_price / 1000000  # Milyon TL'ye çevir
-                # EPS ve defter değeri için mevcut verileri kullan (geçmiş veriler sınırlı)
-                eps = stock.info.get('trailingEps', 0)
-                book_value_per_share = stock.info.get('bookValue', 0)
-                # Fiyat trendini hesapla
-                price_trend = self.calculate_price_trend(hist)
-                return {
-                    'market_cap': market_cap,
-                    'eps': eps,
-                    'current_price': current_price,
-                    'book_value_per_share': book_value_per_share,
-                    'price_trend': price_trend
-                }
-            else:
-                # Mevcut verileri al
-                info = stock.info
-                market_cap = info.get('marketCap', 0) / 1000000  # Milyon TL'ye çevir
-                eps = info.get('trailingEps', 0)
-                current_price = info.get('currentPrice', 0)
-                book_value_per_share = info.get('bookValue', 0)
-                # Geçmiş fiyat verileri (trend analizi için)
-                hist = stock.history(period="1y")
-                price_trend = self.calculate_price_trend(hist)
-                return {
-                    'market_cap': market_cap,
-                    'eps': eps,
-                    'current_price': current_price,
-                    'book_value_per_share': book_value_per_share,
-                    'price_trend': price_trend
-                }
-        except Exception as e:
-            logger.error(f"{ticker} için piyasa verisi alınamadı: {str(e)}")
-            return {
-                'market_cap': 0,
-                'eps': 0,
-                'current_price': 0,
-                'book_value_per_share': 0,
-                'price_trend': 0
-            }
-    def calculate_price_trend(self, hist_data):
-        """Fiyat trendini hesapla (yıllık değişim %)"""
-        if len(hist_data) < 2:
-            return 0
-        try:
-            first_price = hist_data['Close'].iloc[0]
-            last_price = hist_data['Close'].iloc[-1]
-            return ((last_price - first_price) / first_price) * 100
-        except:
-            return 0
-    def extract_financial_values(self, df, period_col):
-        """DataFrame'den finansal değerleri çıkarır"""
-        values = {}
-        found_items = []
-        for key, possible_names in self.financial_items.items():
-            value = 0
-            found = False
-            for name in possible_names:
-                matching_rows = df[df['Kalem'].str.contains(name, case=False, na=False, regex=False)]
-                if not matching_rows.empty:
-                    val = matching_rows.iloc[0][period_col]
-                    if pd.notna(val) and val != 0:
-                        value = float(val)
-                        found = True
-                        found_items.append(f"{key}: {name} = {value}")
-                        break
-            if not found and key == 'faaliyet_kari':
-                logger.warning(f"Faaliyet kârı bulunamadı. Kalemler: {df['Kalem'].tolist()}")
-            values[key] = value
-        logger.debug(f"Bulunan finansal kalemler: {found_items}")
-        return values
-    def calculate_ratios(self, financial_data):
-        """Finansal oranları hesaplar"""
-        ratios = {}
-        for ratio_name, formula in self.ratios.items():
-            try:
-                ratios[ratio_name] = formula(financial_data)
-            except Exception as e:
-                ratios[ratio_name] = 0
-                logger.error(f"{ratio_name} oranı hesaplanamadı: {str(e)}")
-        return ratios
-    def calculate_financial_health_score(self, data):
-        """Finansal sağlık skorunu hesapla (0-100)"""
-        score = 0
-        details = {}
-        # ROE Skoru (0-25)
-        roe = data.get('roe', 0)
-        if roe > 20:
-            score += 25
-            details['ROE'] = f"25/25 (Çok iyi: %{roe:.1f})"
-        elif roe > 15:
-            score += 20
-            details['ROE'] = f"20/25 (İyi: %{roe:.1f})"
-        elif roe > 10:
-            score += 15
-            details['ROE'] = f"15/25 (Orta: %{roe:.1f})"
-        elif roe > 5:
-            score += 10
-            details['ROE'] = f"10/25 (Zayıf: %{roe:.1f})"
-        else:
-            details['ROE'] = f"0/25 (Çok zayıf: %{roe:.1f})"
-        # Borç Oranı Skoru (0-20)
-        borc_orani = data.get('borc_orani', 100)
-        if borc_orani < 30:
-            score += 20
-            details['Borç'] = f"20/20 (Çok düşük: %{borc_orani:.1f})"
-        elif borc_orani < 50:
-            score += 15
-            details['Borç'] = f"15/20 (Düşük: %{borc_orani:.1f})"
-        elif borc_orani < 70:
-            score += 10
-            details['Borç'] = f"10/20 (Orta: %{borc_orani:.1f})"
-        else:
-            details['Borç'] = f"0/20 (Yüksek: %{borc_orani:.1f})"
-        # Likidite Skoru (0-20)
-        likidite = data.get('likidite_orani', 0)
-        if likidite > 2:
-            score += 20
-            details['Likidite'] = f"20/20 (Çok iyi: {likidite:.1f})"
-        elif likidite > 1.5:
-            score += 15
-            details['Likidite'] = f"15/20 (İyi: {likidite:.1f})"
-        elif likidite > 1:
-            score += 10
-            details['Likidite'] = f"10/20 (Orta: {likidite:.1f})"
-        else:
-            details['Likidite'] = f"0/20 (Düşük: {likidite:.1f})"
-        # Kar Marjı Skoru (0-20)
-        kar_marji = data.get('net_kar_marji', 0)
-        if kar_marji > 15:
-            score += 20
-            details['Kar Marjı'] = f"20/20 (Çok iyi: %{kar_marji:.1f})"
-        elif kar_marji > 10:
-            score += 15
-            details['Kar Marjı'] = f"15/20 (İyi: %{kar_marji:.1f})"
-        elif kar_marji > 5:
-            score += 10
-            details['Kar Marjı'] = f"10/20 (Orta: %{kar_marji:.1f})"
-        else:
-            details['Kar Marjı'] = f"0/20 (Düşük: %{kar_marji:.1f})"
-        # Büyüme Skoru (0-15)
-        price_trend = data.get('price_trend', 0)
-        if price_trend > 50:
-            score += 15
-            details['Büyüme'] = f"15/15 (Çok hızlı: %{price_trend:.1f})"
-        elif price_trend > 20:
-            score += 12
-            details['Büyüme'] = f"12/15 (Hızlı: %{price_trend:.1f})"
-        elif price_trend > 0:
-            score += 8
-            details['Büyüme'] = f"8/15 (Pozitif: %{price_trend:.1f})"
-        else:
-            details['Büyüme'] = f"0/15 (Negatif: %{price_trend:.1f})"
-        return {
-            'score': min(score, 100),
-            'details': details,
-            'category': self.get_score_category(score)
-        }
-    def get_score_category(self, score):
-        """Skora göre kategori belirle"""
-        if score >= 80:
-            return "ÇOK İYİ"
-        elif score >= 60:
-            return "İYİ"
-        elif score >= 40:
-            return "ORTA"
-        elif score >= 20:
-            return "ZAYIF"
-        else:
-            return "ÇOK ZAYIF"
-    def calculate_valuation_score(self, data):
-        """Değerleme skorunu hesapla (0-100) - Ne kadar ucuz? - DÜZELTİLMİŞ VERSİYON"""
-        score = 100  # Başlangıçta tam puan, indirimler uygulanacak
-        details = {}
-
-        # F/K Oranı İndirimi - DÜZELTİLDİ: Düşük F/K = Ucuz = Pozitif
-        fk = data.get('fk', 0)
-        if fk <= 0:  # Negatif veya sıfır F/K
-            score -= 50
-            details['F/K'] = f"-50 (Geçersiz F/K: {fk:.1f})"
-        elif fk < 5:  # Çok ucuz
-            score += 15
-            details['F/K'] = f"+15 (Çok ucuz: {fk:.1f})"
-            score = min(score, 100)
-        elif fk < 10:  # Ucuz
-            score += 5
-            details['F/K'] = f"+5 (Ucuz: {fk:.1f})"
-            score = min(score, 100)
-        elif fk < 15:  # Hafif pahalı
-            score -= 5
-            details['F/K'] = f"-5 (Hafif pahalı: {fk:.1f})"
-        elif fk < 20:  # Pahalı
-            score -= 15
-            details['F/K'] = f"-15 (Pahalı: {fk:.1f})"
-        elif fk < 30:  # Çok pahalı
-            score -= 25
-            details['F/K'] = f"-25 (Çok pahalı: {fk:.1f})"
-        else:  # Aşırı pahalı
-            score -= 40
-            details['F/K'] = f"-40 (Aşırı pahalı: {fk:.1f})"
-
-        # PD/DD İndirimi - DÜZELTİLDİ: Düşük PD/DD = Ucuz = Pozitif
-        pd_dd = data.get('pd_dd', 0)
-        if pd_dd <= 0:  # Negatif veya sıfır PD/DD
-            score -= 40
-            details['PD/DD'] = f"-40 (Geçersiz PD/DD: {pd_dd:.1f})"
-        elif pd_dd < 2:  # Çok ucuz
-            score += 25
-            details['PD/DD'] = f"+25 (Çok ucuz: {pd_dd:.1f})"
-            score = min(score, 100)
-        elif pd_dd < 3:  # Ucuz
-            score += 10
-            details['PD/DD'] = f"+10 (Ucuz: {pd_dd:.1f})"
-            score = min(score, 100)
-        elif pd_dd < 4:  # Hafif pahalı
-            score += 5
-            details['PD/DD'] = f"+5 (Hafif pahalı: {pd_dd:.1f})"
-        elif pd_dd < 7:  # Orta pahalı
-            score -= 5
-            details['PD/DD'] = f"-5 (Orta pahalı: {pd_dd:.1f})"
-        elif pd_dd < 10:  # Pahalı
-            score -= 10
-            details['PD/DD'] = f"-10 (Pahalı: {pd_dd:.1f})"
-        else:  # Çok pahalı
-            score -= 25
-            details['PD/DD'] = f"-30 (Çok pahalı: {pd_dd:.1f})"
-
-        # EV/EBITDA İndirimi - DÜZELTİLDİ: Düşük EV/EBITDA = Ucuz = Pozitif
-        ev_ebitda = data.get('ev_ebitda', 0)
-        if ev_ebitda <= 0:  # Negatif veya sıfır EV/EBITDA
-            score -= 30
-            details['EV/EBITDA'] = f"-30 (Geçersiz EV/EBITDA: {ev_ebitda:.1f})"
-        elif ev_ebitda < 3:  # Çok ucuz
-            score += 25
-            details['EV/EBITDA'] = f"+10 (Çok ucuz: {ev_ebitda:.1f})"
-            score = min(score, 100)
-        elif ev_ebitda < 6:  # Ucuz
-            score += 15
-            details['EV/EBITDA'] = f"+5 (Ucuz: {ev_ebitda:.1f})"
-            score = min(score, 100)
-        elif ev_ebitda < 10:  # Hafif pahalı
-            score += 10
-            details['EV/EBITDA'] = f"+10 (Hafif pahalı: {ev_ebitda:.1f})"
-        elif ev_ebitda < 15:  # Pahalı
-            score -= 10
-            details['EV/EBITDA'] = f"-8 (Pahalı: {ev_ebitda:.1f})"
-        elif ev_ebitda < 20:  # Çok pahalı
-            score -= 15
-            details['EV/EBITDA'] = f"-15 (Çok pahalı: {ev_ebitda:.1f})"
-        else:  # Aşırı pahalı
-            score -= 25
-            details['EV/EBITDA'] = f"-25 (Aşırı pahalı: {ev_ebitda:.1f})"
-
-        return {
-            'score': max(score, 0),
-            'details': details,
-            'category': self.get_score_category(score)
-        }
-    def calculate_future_performance_score(self, data):
-        """Gelecek performans skorunu hesapla (0-100)"""
-        score = 0
-        details = {}
-        # ROE Trendi
-        roe = data.get('roe', 0)
-        if roe > 50:
-            score += 30
-            details['ROE'] = f"30/30 (Sürdürülebilir yüksek kârlılık: %{roe:.1f})"
-        elif roe > 25:
-            score += 20
-            details['ROE'] = f"25/30 (İyi kârlılık: %{roe:.1f})"
-        elif roe > 15:
-            score += 10
-            details['ROE'] = f"15/30 (Orta kârlılık: %{roe:.1f})"
-        elif roe > 5:
-            score += 5
-            details['ROE'] = f"5/30 (Orta kârlılık: %{roe:.1f})"
-        else:
-            details['ROE'] = f"0/30 (Düşük kârlılık: %{roe:.1f})"
-        # Yatırım Oranı
-        yatirim_orani = self.safe_divide(
-            data.get('ozsermaye', 0) - data.get('odenmis_sermaye', 0),
-            data.get('ozsermaye', 0)
-        ) * 100
-        if yatirim_orani > 50:
-            score += 25
-            details['Yatırım'] = f"25/25 (Yüksek sermaye birikimi: %{yatirim_orani:.1f})"
-        elif yatirim_orani > 30:
-            score += 20
-            details['Yatırım'] = f"20/25 (Orta sermaye birikimi: %{yatirim_orani:.1f})"
-        elif yatirim_orani > 10:
-            score += 10
-            details['Yatırım'] = f"10/25 (Düşük sermaye birikimi: %{yatirim_orani:.1f})"
-        else:
-            details['Yatırım'] = f"0/25 (Sınırlı sermaye birikimi: %{yatirim_orani:.1f})"
-        # Faaliyet Kârı Trendi
-        faaliyet_kari = data.get('faaliyet_kari', 0)
-        if faaliyet_kari > 0:
-            score += 20
-            details['Faaliyet Kârı'] = f"20/20 (Pozitif faaliyet kârı: {faaliyet_kari:.1f}M TL)"
-        else:
-            details['Faaliyet Kârı'] = f"0/20 (Negatif faaliyet kârı: {faaliyet_kari:.1f}M TL)"
-        # Sektör Büyüme Potansiyeli (basit bir yaklaşım)
-        sektor = data.get('sektor', 'BILINMIYOR')
-        yuksek_potansiyel_sektorler = ['TEKNOLOJİ', 'ENERJİ', 'SAVUNMA', 'BİLİŞİM', 'İLAÇ']
-        orta_potansiyel_sektorler = ['HOLDİNG', 'OTOMOTİV', 'GIDA', 'PERAKENDE']
-        if any(sektor.startswith(s) for s in yuksek_potansiyel_sektorler):
-            score += 25
-            details['Sektör'] = f"25/25 (Yüksek büyüme potansiyeli: {sektor})"
-        elif any(sektor.startswith(s) for s in orta_potansiyel_sektorler):
-            score += 15
-            details['Sektör'] = f"15/25 (Orta büyüme potansiyeli: {sektor})"
-        else:
-            score += 5
-            details['Sektör'] = f"5/25 (Düşük büyüme potansiyeli: {sektor})"
-        return {
-            'score': min(score, 100),
-            'details': details,
-            'category': self.get_score_category(score)
-        }
-    def calculate_sector_averages(self, results):
-        """Sektör ortalamalarını hesapla"""
-        sector_pe = {}
-        sector_pb = {}
-        for sector in set(r['SEKTÖR'] for r in results):
-            pe_values = []
-            pb_values = []
-            for r in results:
-                if r['SEKTÖR'] == sector:
-                    if r['F/K'] > 0:
-                        pe_values.append(r['F/K'])
-                    if r['PD/DD'] > 0:
-                        pb_values.append(r['PD/DD'])
-            sector_pe[sector] = np.mean(pe_values) if pe_values else 15.0
-            sector_pb[sector] = np.mean(pb_values) if pb_values else 1.5
-        return sector_pe, sector_pb
-    def calculate_target_price(self, result, sector_pe_avg, sector_pb_avg):
-        """Hedef fiyat hesapla - SEKTÖR ORTALAMALARI KULLANILMADAN"""
-        # Gerekli verileri al
-        eps = result.get('EPS', 0)
-        book_value = result.get('DEFTER DEĞERİ', 0)
-        current_price = result.get('FİYAT', 0)
-        future_score = result.get('GELECEK SKORU', 0)
-
-        # Geçersiz veri kontrolü
-        if eps <= 0 or book_value <= 0 or current_price <= 0:
-            return {
-                'HEDEF FİYAT': 0,
-                'YÜKSELİŞ POTANSİYELİ (%)': 0,
-                'HEDEF FİYAT AÇIKLAMA': 'Yetersiz veri'
-            }
-
-        # Büyüme çarpanı
-        if future_score >= 80:
-            growth_multiplier = 1.2
-        elif future_score >= 60:
-            growth_multiplier = 1.1
-        elif future_score < 40:
-            growth_multiplier = 0.9
-        else:
-            growth_multiplier = 1.0
-
-        # Standart çarpanlar (sektör ortalamaları yerine)
-        standard_pe = 12.0  # Standart F/K çarpanı
-        standard_pb = 1.8   # Standart PD/DD çarpanı
-
-        # Hedef fiyat hesaplamaları
-        target_pe = eps * standard_pe * growth_multiplier
-        target_pb = book_value * standard_pb * growth_multiplier
-
-        # Ağırlıklı ortalama (60% PE, 40% PB)
-        target_price = (target_pe * 0.6 + target_pb * 0.4)
-
-        # Yükseliş potansiyeli
-        upside_potential = ((target_price - current_price) / current_price) * 100
-
-        return {
-            'HEDEF FİYAT': round(target_price, 2),
-            'YÜKSELİŞ POTANSİYELİ (%)': round(upside_potential, 1),
-            'HEDEF FİYAT AÇIKLAMA': f"Standart F/K: {standard_pe:.1f}, Standart PD/DD: {standard_pb:.1f}, Büyüme Çarpanı: {growth_multiplier:.1f}x"
-        }
-    async def analyze_ticker(self, session, ticker, semaphore, historical_date=None):
-        """Tek bir hisse için kapsamlı analiz yapar"""
-        async with semaphore:
-            try:
-                # Güncel ve geçmiş dönem verileri
-                if historical_date:
-                    # Tarih bilgilerini ayarla
-                    hist_date = datetime.strptime(historical_date, '%Y-%m-%d')
-                    year1 = hist_date.year
-                    month1 = hist_date.month
-                    # Dönem belirleme (3 aylık periyotlar)
-                    if month1 <= 3:
-                        period1 = 3
-                    elif month1 <= 6:
-                        period1 = 6
-                    elif month1 <= 9:
-                        period1 = 9
+                
+                if 'items' in data and len(data['items']) > 0:
+                    df = pd.DataFrame(data['items'])
+                    
+                    # Tarih sütununu esnek şekilde çevir (ÇÖZÜM)
+                    if 'Tarih' in df.columns:
+                        # Farklı formatları dene
+                        for fmt in ['%d-%m-%Y', '%Y-%m-%d', '%d-%m-%y', '%Y-%m', '%Y-%m-%d %H:%M:%S']:
+                            try:
+                                df['Tarih'] = pd.to_datetime(df['Tarih'], format=fmt)
+                                break
+                            except:
+                                continue
+                        else:
+                            # Hiçbiri uyşmazsa pandas'a bırak
+                            df['Tarih'] = pd.to_datetime(df['Tarih'], errors='coerce')
+                        
+                        df.set_index('Tarih', inplace=True)
+                        
+                        # Sütun adını düzelt
+                        if code.replace('.', '_') in df.columns:
+                            return df[[code.replace('.', '_')]]
+                        elif code in df.columns:
+                            return df[[code]]
                     else:
-                        period1 = 12
-                    # Önceki dönemler
-                    year2 = year1
-                    period2 = period1 - 3 if period1 > 3 else 12
-                    if period2 == 12:
-                        year2 = year1 - 1
-                    year3 = year1 - 1
-                    period3 = 12
-                    year4 = year1 - 1
-                    period4 = 9
-                    period_config = {
-                        "year1": year1, "period1": period1,
-                        "year2": year2, "period2": period2,
-                        "year3": year3, "period3": period3,
-                        "year4": year4, "period4": period4,
-                    }
+                        print(f"❌ 'Tarih' sütunu bulunamadı. Mevcut: {list(df.columns)}")
                 else:
-                    period_config = {
-                        "year1": 2025, "period1": 6,
-                        "year2": 2025, "period2": 3,
-                        "year3": 2024, "period3": 12,
-                        "year4": 2024, "period4": 9,
+                    print(f"❌ Veri bulunamadı. Yanıt: {data}")
+            except json.JSONDecodeError:
+                print(f"❌ JSON hatası: {response.text}")
+        else:
+            print(f"❌ HTTP Hatası: {response.status_code} - {response.text}")
+    except Exception as e:
+        print(f"❌ Genel Hata: {e}")
+    return None
+
+def fetch_economic_data(series_config, start_date="01-01-2000", end_date="18-08-2025"):
+    """Ekonomik verileri çeker ve doğru şekilde işler"""
+    data = {}
+    failed_series = []
+    
+    for name, config in series_config.items():
+        print(f"\n📊 {name} verisi çekiliyor... (kod: {config['code']}, frekans: {config['frequency']})")
+        
+        df = try_get_series(config['code'], start_date, end_date, config['frequency'])
+        
+        if df is not None and not df.empty:
+            df = df.rename(columns={df.columns[0]: name})
+            
+            # VERİ TEMİZLİME VE ÖLÇEKLENDİRME
+            for col in df.columns:
+                # Ondalık ayracı düzeltme (virgül -> nokta)
+                df[col] = df[col].astype(str).str.replace(',', '.', regex=True)
+                
+                # Sayıya çevir
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+                
+                # Ölçeklendirme
+                df[col] = df[col] * config['scale']
+                
+                # NaN değerleri doldur
+                df[col] = df[col].fillna(method='ffill').fillna(method='bfill')
+            
+            # Frekansa göre yeniden örnekleme
+            if config['frequency'] == "3":  # 3 aylık -> aylık
+                df = df.resample('M').interpolate()
+            elif config['frequency'] == "1":  # Aylık
+                df = df.resample('M').last()
+            # Diğer frekanslar için gerekirse buraya eklenebilir
+            
+            data[name] = df
+            ok_pts = df[name].dropna().shape[0]
+            
+            # Örnek değer göster
+            sample_val = df[name].iloc[-1] if len(df) > 0 else None
+            print(f"✅ {name} başarıyla çekildi ve işlendi ({ok_pts} aylık gözlem)")
+            if sample_val is not None:
+                print(f"📝 Örnek değer: {sample_val:.2f}")
+        else:
+            print(f"❌ {name} için veri alınamadı.")
+            failed_series.append(name)
+    
+    # Başarılı verileri birleştir
+    if data:
+        # Tüm indekslerin birleşimi
+        all_index = None
+        for df in data.values():
+            all_index = df.index if all_index is None else all_index.union(df.index)
+        
+        aligned = {}
+        for name, df in data.items():
+            aligned[name] = df.reindex(all_index)
+        
+        df_all = pd.concat(aligned.values(), axis=1)
+        df_all = df_all.sort_index()
+        
+        # Sadece sayısal sütunları seç
+        numeric_cols = df_all.select_dtypes(include=[np.number]).columns
+        df_all = df_all[numeric_cols]
+        
+        # Aykırı boşlukları doldur
+        df_all = df_all.interpolate(method='linear').fillna(method='bfill').fillna(method='ffill')
+        
+        print(f"\n✅ Toplam {len(df_all.columns)} seri başarıyla yüklendi ve işlendi")
+        print(f"📅 Veri aralığı: {df_all.index.min().strftime('%Y-%m')} - {df_all.index.max().strftime('%Y-%m')}")
+        print(f"📊 Sayısal sütunlar: {list(df_all.columns)}")
+        
+        # Örnek değerleri göster
+        print("\n📊 ÖLÇEKLENMİŞ ÖRNEK DEĞERLER:")
+        for col in df_all.columns[:5]:  # İlk 5 sütun
+            sample_val = df_all[col].iloc[-1] if len(df_all) > 0 else None
+            if sample_val is not None:
+                print(f"   • {col}: {sample_val:.2f}")
+    else:
+        df_all = pd.DataFrame()
+    
+    return df_all, failed_series
+
+# ==============================
+# 4. EKONOMİK DÖNGÜ ANALİZİ FONKSİYONLARI (DEĞİŞİKLİK YOK)
+# ==============================
+def detect_economic_cycles(df):
+    """Ekonomik döngü fazlarını tespit eder"""
+    growth_indicators = []
+    
+    # GSYH Büyüme (yoksa atla)
+    if "GSYH Büyüme (%)" in df.columns:
+        growth_indicators.append(df["GSYH Büyüme (%)"].fillna(0) * 0.3)
+    
+    # Sanayi üretimi (yıllık % değişim)
+    if "Sanayi Üretim Endeksi" in df.columns:
+        sue_growth = df["Sanayi Üretim Endeksi"].pct_change(12) * 100
+        growth_indicators.append(sue_growth.fillna(0) * 0.25)
+    
+    # İşsizlik (ters işaret)
+    if "İşsizlik Oranı (%)" in df.columns:
+        unemployment_inv = -(df["İşsizlik Oranı (%)"] - df["İşsizlik Oranı (%)"].mean())
+        growth_indicators.append(unemployment_inv.fillna(0) * 0.2)
+    
+    # Tüketici güveni (merkezlenmiş)
+    if "Tüketici Güven Endeksi" in df.columns:
+        consumer_conf = df["Tüketici Güven Endeksi"] - df["Tüketici Güven Endeksi"].mean()
+        growth_indicators.append(consumer_conf.fillna(0) * 0.15)
+    
+    # Kapasite kullanım (merkezlenmiş)
+    if "Kapasite Kullanım (%)" in df.columns:
+        capacity = df["Kapasite Kullanım (%)"] - df["Kapasite Kullanım (%)"].mean()
+        growth_indicators.append(capacity.fillna(0) * 0.1)
+    
+    if growth_indicators:
+        composite_indicator = sum(growth_indicators)
+        
+        # Düzleştir
+        window_len = min(13, max(3, (len(composite_indicator) // 3) | 1))  # tek sayı
+        if len(composite_indicator.dropna()) >= window_len:
+            composite_smooth = savgol_filter(composite_indicator.fillna(0), window_length=window_len, polyorder=2)
+        else:
+            composite_smooth = composite_indicator.fillna(0).values
+        
+        # Fazlar
+        phases = []
+        for v in composite_smooth:
+            if v > 1.5:
+                phases.append("Genişleme")
+            elif v > 0.5:
+                phases.append("Tepe")
+            elif v > -1.5:
+                phases.append("İyileşme")
+            else:
+                phases.append("Daralma")
+        
+        cycle_df = pd.DataFrame({
+            'Tarih': df.index,
+            'Bileşik_Gösterge': composite_smooth,
+            'Döngü_Fazı': phases
+        }).set_index('Tarih')
+        
+        return cycle_df
+    return pd.DataFrame()
+
+def analyze_cycle_characteristics(df, cycle_df):
+    """Döngü fazlarının özelliklerini analiz eder"""
+    if cycle_df.empty or df.empty:
+        return {}
+    
+    analysis_df = df.join(cycle_df, how='inner')
+    phase_stats = {}
+    
+    for phase in ['Genişleme', 'Tepe', 'Daralma', 'İyileşme']:
+        phase_data = analysis_df[analysis_df['Döngü_Fazı'] == phase]
+        if len(phase_data) > 0:
+            stats = {}
+            for col in df.columns:
+                if col in phase_data.columns and pd.api.types.is_numeric_dtype(phase_data[col]):
+                    stats[col] = {
+                        'ortalama': phase_data[col].mean(),
+                        'std': phase_data[col].std(),
+                        'min': phase_data[col].min(),
+                        'max': phase_data[col].max()
                     }
-                print(f"🔄 {ticker} analiz ediliyor...")
-                # Veri çekme
-                api_data = await self.get_financial_data_api(session, ticker, period_config)
-                market_data = await self.get_market_data(ticker, historical_date)
-                # Sektör bilgisini belirle
-                sector = "BILINMIYOR"
-                for sec, stocks in self.sektoral_groups.items():
-                    if ticker in stocks:
-                        sector = sec
-                        break
-                if api_data and "value" in api_data and len(api_data["value"]) > 0:
-                    # Veri işleme
-                    df_data = []
-                    for item in api_data["value"]:
-                        row = {
-                            "Kalem": item.get("itemDescTr", ""),
-                            f"{period_config['year1']}-{period_config['period1']}": item.get("value1"),
-                            f"{period_config['year2']}-{period_config['period2']}": item.get("value2"),
-                            f"{period_config['year3']}-{period_config['period3']}": item.get("value3"),
-                            f"{period_config['year4']}-{period_config['period4']}": item.get("value4")
-                        }
-                        df_data.append(row)
-                    df = pd.DataFrame(df_data)
-                    numeric_cols = [
-                        f"{period_config['year1']}-{period_config['period1']}",
-                        f"{period_config['year2']}-{period_config['period2']}",
-                        f"{period_config['year3']}-{period_config['period3']}",
-                        f"{period_config['year4']}-{period_config['period4']}"
-                    ]
-                    for col in numeric_cols:
-                        df[col] = pd.to_numeric(df[col], errors='coerce') / 1000000
-                    periods = numeric_cols
-                    financial_data = {}
-                    latest_period = None
-                    for period in periods:
-                        financial_data = self.extract_financial_values(df, period)
-                        if financial_data.get('faaliyet_kari', 0) != 0:
-                            latest_period = period
-                            break
-                    if not latest_period:
-                        latest_period = periods[0]
-                        logger.warning(f"{ticker} için faaliyet kârı tüm dönemlerde 0. Varsayılan dönem: {latest_period}")
-                    # Verileri birleştir
-                    financial_data.update(market_data)
-                    financial_data['sektor'] = sector
-                    # Veri doğrulama
-                    warnings = self.validate_financial_data(financial_data)
-                    # Oranları hesapla
-                    ratios = self.calculate_ratios(financial_data)
-                    financial_data.update(ratios)
-                    # Skorları hesapla
-                    health_score = self.calculate_financial_health_score(financial_data)
-                    valuation_score = self.calculate_valuation_score(financial_data)
-                    future_score = self.calculate_future_performance_score(financial_data)
-                    # Genel yatırım skoru (ağırlıklı ortalama)
-                    investment_score = (
-                        health_score['score'] * 0.4 +
-                        valuation_score['score'] * 0.35 +
-                        future_score['score'] * 0.25
-                    )
-                    # Sonuçları oluştur
-                    result = {
-                        'HİSSE KODU': ticker,
-                        'SEKTÖR': sector,
-                        'DÖNEM': latest_period,
-                        'FİYAT': round(market_data.get('current_price', 0), 2),
-                        'EPS': round(market_data.get('eps', 0), 2),
-                        'DEFTER DEĞERİ': round(market_data.get('book_value_per_share', 0), 2),
-                        'NET SATIŞ(M)': round(financial_data.get('net_satis', 0), 1),
-                        'NET KAR(M)': round(financial_data.get('net_kar', 0), 1),
-                        'TOPLAM VARLIK(M)': round(financial_data.get('aktif_toplam', 0), 1),
-                        'ÖZKAYNAK(M)': round(financial_data.get('ozsermaye', 0), 1),
-                        'ÖDENMİŞ SERMAYE(M)':round(financial_data.get('odenmis_sermaye',0),1),
-                        'FAALİYET KARI(M)': round(financial_data.get('faaliyet_kari', 0), 1),
-                        'ROE (%)': round(ratios.get('roe', 0), 2),
-                        'ROA (%)': round(ratios.get('roa', 0), 2),
-                        'ROIC (%)': round(ratios.get('ROIC', 0), 2),
-                        'NET.K.MARJ(%)': round(ratios.get('net_kar_marji', 0), 2),
-                        'BRÜT.K.MARJ(%)': round(ratios.get('brut_kar_marji', 0), 2),
-                        'FAAL.K.MARJ(%)': round(ratios.get('faaliyet_kar_marji', 0), 2),
-                        'EBITDA_MARJI': round(ratios.get('EBITDA_MARJI', 0), 2),
-                        'BORÇ ORAN(%)': round(ratios.get('borc_orani', 0), 2),
-                        'LİKİT ORAN': round(ratios.get('likidite_orani', 0), 2),
-                        'NAKİT ORAN': round(ratios.get('nakit_orani', 0), 2),
-                        'ASİT.T.ORAN': round(ratios.get('asit_test', 0), 2),
-                        'PD/DD': round(ratios.get('pd_dd', 0), 2),
-                        'F/K': round(ratios.get('fk', 0), 2),
-                        'EV/EBITDA': round(ratios.get('ev_ebitda', 0), 2),
-                        'FİYAT TRENDİ (%)': round(market_data.get('price_trend', 0), 2),
-                        'SAĞLIK SKORU': health_score['score'],
-                        'SAĞLIK KATEGORİ': health_score['category'],
-                        'DEĞERLEME SKORU': valuation_score['score'],
-                        'DEĞERLEME KATEGORİ': valuation_score['category'],
-                        'GELECEK SKORU': future_score['score'],
-                        'GELECEK KATEGORİ': future_score['category'],
-                        'YATIRIM SKORU': round(investment_score, 1),
-                        'YATIRIM KATEGORİ': self.get_score_category(investment_score),
-                        'UYARILAR': "; ".join(warnings) if warnings else "Yok"
-                    }
+            
+            phase_stats[phase] = {
+                'istatistikler': stats,
+                'dönem_sayısı': len(phase_data),
+                'toplam_süre_ay': len(phase_data)
+            }
+    
+    return phase_stats
 
-                    print(f"✅ {ticker} tamamlandı - Yatırım Skoru: {result['YATIRIM SKORU']}/100")
-                    return result
-                else:
-                    logger.error(f"{ticker} için veri bulunamadı")
-                    return None
-            except Exception as e:
-                logger.error(f"{ticker} analiz hatası: {str(e)}")
-                return None
-    async def batch_analyze(self, tickers, batch_size=10, max_concurrent=3, historical_date=None):
-        """Batch processing ile büyük veri setlerini analiz et"""
-        all_results = []
-        for i in range(0, len(tickers), batch_size):
-            batch = tickers[i:i+batch_size]
-            print(f"🔄 Batch {i//batch_size + 1}/{(len(tickers)-1)//batch_size + 1} işleniyor...")
-            connector = aiohttp.TCPConnector(limit=20, limit_per_host=max_concurrent)
-            timeout = aiohttp.ClientTimeout(total=60)
-            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-                semaphore = asyncio.Semaphore(max_concurrent)
-                tasks = [self.analyze_ticker(session, ticker, semaphore, historical_date) for ticker in batch]
-                batch_results = await asyncio.gather(*tasks, return_exceptions=True)
-                valid_results = [r for r in batch_results if r is not None and not isinstance(r, Exception)]
-                all_results.extend(valid_results)
-                # Ara sonuçları kaydet
-                self.save_intermediate_results(all_results)
-                # Önbelleği kaydet
-                self.save_cache()
-                print(f"✅ Batch tamamlandı: {len(valid_results)}/{len(batch)} hisse analiz edildi")
-
-        # Sektör ortalamalarını hesaplama kısmını kaldırdık
-        # Her hisse için hedef fiyat hesapla (artık sektör ortalamalarını kullanmadan)
-        for result in all_results:
-            # Sektör ortalamaları yerine None değerleri gönderiyoruz, fonksiyon içinde kullanılmayacak
-            target_data = self.calculate_target_price(result, None, None)
-            result.update(target_data)
-
-        return all_results
-    def save_intermediate_results(self, results):
-        """Ara sonuçları kaydet"""
-        try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"intermediate_results_{timestamp}.pkl"
-            with open(filename, 'wb') as f:
-                pickle.dump(results, f)
-            logger.info(f"Ara sonuçlar kaydedildi: {filename}")
-        except Exception as e:
-            logger.error(f"Ara sonuçlar kaydedilemedi: {str(e)}")
-    def display_results(self, results, top_n=20):
-        """Sonuçları Colab'da güzel formatta gösterir"""
-        if not results:
-            print("❌ Gösterilecek sonuç yok!")
-            return
-        df = pd.DataFrame(results)
-        df = df.sort_values('YATIRIM SKORU', ascending=False).head(top_n)
-        print("📊 YATIRIM ANALİZ SONUÇLARI")
-        print("=" * 80)
-        print(f"📈 En Yüksek Yatırım Skoru: {df['YATIRIM SKORU'].max():.1f}/100 ({df.loc[df['YATIRIM SKORU'].idxmax(), 'HİSSE KODU']})")
-        print(f"📉 En Düşük Yatırım Skoru: {df['YATIRIM SKORU'].min():.1f}/100 ({df.loc[df['YATIRIM SKORU'].idxmin(), 'HİSSE KODU']})")
-        print(f"📊 Ortalama Yatırım Skoru: {df['YATIRIM SKORU'].mean():.1f}/100")
-        print("\n")
-        # HTML tablo oluştur
-        html_table = df.to_html(classes='table table-striped', table_id='analysis_table', escape=False)
-        # CSS stilleri
-        css = """
-        <style>
-            #analysis_table {
-                font-size: 12px;
-                width: 100%;
-                border-collapse: collapse;
-            }
-            #analysis_table th {
-                background-color: #366092;
-                color: white;
-                padding: 8px;
-                text-align: center;
-            }
-            #analysis_table td {
-                padding: 6px;
-                text-align: right;
-            }
-            #analysis_table tr:nth-child(even) {
-                background-color: #f2f2f2;
-            }
-            .positive { color: green; font-weight: bold; }
-            .negative { color: red; font-weight: bold; }
-            .score-very-good { background-color: #d4edda; }
-            .score-good { background-color: #d1ecf1; }
-            .score-medium { background-color: #fff3cd; }
-            .score-weak { background-color: #f8d7da; }
-            .score-very-weak { background-color: #f5c6cb; }
-        </style>
-        """
-        display(HTML(css + html_table))
-        return df
-    def plot_analysis(self, results):
-        """Analiz sonuçlarını görselleştir"""
-        if not results:
-            print("❌ Görselleştirilecek veri yok!")
-            return
-        df = pd.DataFrame(results)
-        # 1. Yatırım Skoru Dağılımı
-        plt.figure(figsize=(12, 8))
-        plt.subplot(2, 2, 1)
-        sns.histplot(df['YATIRIM SKORU'], bins=20, kde=True, color='skyblue')
-        plt.title('Yatırım Skoru Dağılımı')
-        plt.xlabel('Yatırım Skoru')
-        # 2. Sektörel Karşılaştırma
-        plt.subplot(2, 2, 2)
-        sector_avg = df.groupby('SEKTÖR')['YATIRIM SKORU'].mean().sort_values(ascending=False).head(10)
-        sns.barplot(x=sector_avg.values, y=sector_avg.index, palette='viridis')
-        plt.title('Sektörel Yatırım Skorları (İlk 10)')
-        plt.xlabel('Ortalama Yatırım Skoru')
-        # 3. F/K vs ROE
-        plt.subplot(2, 2, 3)
-        scatter = plt.scatter(
-            x=df['F/K'],
-            y=df['ROE (%)'],
-            s=df['YATIRIM SKORU']*2,
-            c=df['YATIRIM SKORU'],
-            cmap='RdYlGn',
-            alpha=0.7
+# ==============================
+# 5. GRAFİK FONKSİYONLARI (DEĞİŞİKLİK YOK)
+# ==============================
+def create_economic_dashboard(df, cycle_df):
+    """Ekonomik döngü dashboard'u oluşturur (Plotly)"""
+    fig = make_subplots(
+        rows=4, cols=2,
+        subplot_titles=[
+            'Bileşik Ekonomik Gösterge & Döngü Fazları',
+            'GSYH Büyüme & Sanayi Üretimi',
+            'İşsizlik & İstihdam Oranları',
+            'Tüketici & Reel Kesim Güven Endeksleri',
+            'Enflasyon & Politika Faizi',
+            'BIST 100 & Kredi Hacmi',
+            'Kapasite Kullanım & PMI',
+            'Cari Denge & Dış Ticaret'
+        ],
+        vertical_spacing=0.06,
+        horizontal_spacing=0.1
+    )
+    
+    color_map = {'Genişleme': 'green','Tepe': 'orange','Daralma': 'red','İyileşme': 'blue'}
+    
+    if not cycle_df.empty:
+        fig.add_trace(
+            go.Scatter(x=cycle_df.index, y=cycle_df['Bileşik_Gösterge'],
+                       mode='lines', name='Bileşik Gösterge',
+                       line=dict(width=3, color='black')),
+            row=1, col=1
         )
-        plt.xlabel('F/K Oranı')
-        plt.ylabel('ROE (%)')
-        plt.title('F/K vs ROE (Boyut = Yatırım Skoru)')
-        plt.colorbar(scatter, label='Yatırım Skoru')
-        # 4. Hedef Fiyat vs Mevcut Fiyat
-        plt.subplot(2, 2, 4)
-        plt.scatter(
-            x=df['FİYAT'],
-            y=df['HEDEF FİYAT'],
-            c=df['YÜKSELİŞ POTANSİYELİ (%)'],
-            cmap='RdYlGn',
-            s=100,
-            alpha=0.7
-        )
-        plt.plot([df['FİYAT'].min(), df['FİYAT'].max()],
-                [df['FİYAT'].min(), df['FİYAT'].max()],
-                'r--', alpha=0.5)
-        plt.xlabel('Mevcut Fiyat')
-        plt.ylabel('Hedef Fiyat')
-        plt.title('Hedef Fiyat vs Mevcut Fiyat')
-        plt.colorbar(label='Yükseliş Potansiyeli (%)')
-        plt.tight_layout()
-        plt.show()
-        # En iyi 10 hisse için detaylı grafik
-        top_10 = df.nlargest(10, 'YATIRIM SKORU')
-        plt.figure(figsize=(14, 8))
-        metrics = ['SAĞLIK SKORU', 'DEĞERLEME SKORU', 'GELECEK SKORU']
-        x = np.arange(len(top_10))
-        width = 0.25
-        for i, metric in enumerate(metrics):
-            plt.bar(x + i*width, top_10[metric], width, label=metric)
-        plt.xlabel('Hisse Senetleri')
-        plt.ylabel('Skor')
-        plt.title('En İyi 10 Hisse için Detaylı Skorlar')
-        plt.xticks(x + width, top_10['HİSSE KODU'], rotation=45)
-        plt.legend()
-        plt.grid(axis='y', linestyle='--', alpha=0.7)
-        plt.tight_layout()
-        plt.show()
-    def export_to_excel(self, results, filename="yatirim_analizi.xlsx", backtest_results=None):
-        """Sonuçları Excel'e aktar"""
-        if not results:
-            print("❌ Excel'e aktarılacak sonuç yok!")
-            return
-        df = pd.DataFrame(results)
-        df = df.sort_values('YATIRIM SKORU', ascending=False)
-        # Sütun sırasını düzenle
-        columns = [
-            'HİSSE KODU', 'SEKTÖR', 'FİYAT', 'HEDEF FİYAT', 'YÜKSELİŞ POTANSİYELİ (%)', 'DÖNEM',
-            'YATIRIM SKORU', 'YATIRIM KATEGORİ', 'SAĞLIK SKORU', 'SAĞLIK KATEGORİ',
-            'DEĞERLEME SKORU', 'DEĞERLEME KATEGORİ', 'GELECEK SKORU', 'GELECEK KATEGORİ',
-            'EPS', 'DEFTER DEĞERİ', 'NET SATIŞ(M)', 'NET KAR(M)', 'TOPLAM VARLIK(M)',
-            'ÖZKAYNAK(M)','ÖDENMİŞ SERMAYE(M)','FAALİYET KARI(M)', 'ROE (%)', 'ROA (%)', 'ROIC (%)',
-            'NET.K.MARJ(%)', 'BRÜT.K.MARJ(%)', 'FAAL.K.MARJ(%)', 'EBITDA_MARJI',
-            'BORÇ ORAN(%)', 'LİKİT ORAN', 'NAKİT ORAN', 'ASİT.T.ORAN', 'PD/DD', 'F/K',
-            'EV/EBITDA', 'FİYAT TRENDİ (%)', 'HEDEF FİYAT AÇIKLAMA', 'UYARILAR'
-        ]
-        df = df[columns]
-        # Excel'e yaz
-        with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-            # Ana analiz sayfası
-            df.to_excel(writer, sheet_name='YATIRIM ANALİZİ', index=False)
-            # Sektörel analiz
-            sector_analysis = []
-            for sector in df['SEKTÖR'].unique():
-                sector_data = df[df['SEKTÖR'] == sector]
-                if not sector_data.empty:
-                    sector_summary = {
-                        'SEKTÖR': sector,
-                        'HİSSE SAYISI': len(sector_data),
-                        'ORT. YATIRIM SKORU': sector_data['YATIRIM SKORU'].mean(),
-                        'ORT. SAĞLIK SKORU': sector_data['SAĞLIK SKORU'].mean(),
-                        'ORT. DEĞERLEME SKORU': sector_data['DEĞERLEME SKORU'].mean(),
-                        'ORT. GELECEK SKORU': sector_data['GELECEK SKORU'].mean(),
-                        'ORT. YÜKSELİŞ POTANSİYELİ': sector_data['YÜKSELİŞ POTANSİYELİ (%)'].mean(),
-                        'ORT. ROE': sector_data['ROE (%)'].mean(),
-                        'ORT. F/K': sector_data['F/K'].mean(),
-                        'ORT. PD/DD': sector_data['PD/DD'].mean()
+        
+        current_phase = None
+        start_date = None
+        for date, phase in zip(cycle_df.index, cycle_df['Döngü_Fazı']):
+            if phase != current_phase:
+                if current_phase is not None:
+                    fig.add_vrect(x0=start_date, x1=date,
+                                  fillcolor=color_map.get(current_phase, 'gray'),
+                                  opacity=0.2, layer="below", line_width=0,
+                                  row=1, col=1)
+                current_phase = phase
+                start_date = date
+        
+        if current_phase is not None:
+            fig.add_vrect(x0=start_date, x1=cycle_df.index[-1],
+                          fillcolor=color_map.get(current_phase, 'gray'),
+                          opacity=0.2, layer="below", line_width=0,
+                          row=1, col=1)
+    
+    graph_configs = [
+        (['GSYH Büyüme (%)', 'Sanayi Üretim Endeksi'], 1, 2),
+        (['İşsizlik Oranı (%)', 'İstihdam Oranı (%)'], 2, 1),
+        (['Tüketici Güven Endeksi', 'Reel Kesim Güven Endeksi'], 2, 2),
+        (['TÜFE Yıllık (%)', 'Politika Faizi (%)'], 3, 1),
+        (['BIST 100', 'Toplam Kredi Hacmi'], 3, 2),
+        (['Kapasite Kullanım (%)', 'İmalat Sanayi PMI'], 4, 1),
+        (['Cari Denge/GSYH (%)', 'İhracat'], 4, 2)
+    ]
+    
+    for cols, row, col in graph_configs:
+        for series_name in cols:
+            if series_name in df.columns:
+                fig.add_trace(
+                    go.Scatter(x=df.index, y=df[series_name],
+                               mode='lines', name=series_name, showlegend=False),
+                    row=row, col=col
+                )
+    
+    fig.update_layout(height=1600, title_text="🇹🇷 Türkiye Ekonomik Döngü Analizi Dashboard", title_x=0.5, showlegend=True)
+    return fig
+
+def create_cycle_phase_analysis(phase_stats):
+    """Döngü fazları analiz grafiği (Polar)"""
+    if not phase_stats:
+        return None
+    
+    phases = list(phase_stats.keys())
+    key_indicators = ['GSYH Büyüme (%)', 'İşsizlik Oranı (%)', 'Tüketici Güven Endeksi', 'TÜFE Yıllık (%)', 'BIST 100']
+    
+    fig = go.Figure()
+    for phase in phases:
+        if 'istatistikler' in phase_stats[phase]:
+            values, indicators = [], []
+            for indicator in key_indicators:
+                if indicator in phase_stats[phase]['istatistikler']:
+                    val = phase_stats[phase]['istatistikler'][indicator]['ortalama']
+                    values.append(val)
+                    indicators.append(indicator)
+            
+            if values:
+                fig.add_trace(go.Scatterpolar(r=values, theta=indicators, fill='toself', name=phase, opacity=0.6))
+    
+    fig.update_layout(polar=dict(radialaxis=dict(visible=True)), title="Ekonomik Döngü Fazları - Gösterge Analizi", showlegend=True)
+    return fig
+
+# ==============================
+# 6. RAPOR OLUŞTURMA (DEĞİŞİKLİK YOK)
+# ==============================
+def generate_economic_report(df, cycle_df, phase_stats):
+    """Ekonomik analiz raporu (metin olarak döner; Excel'de Rapor_Metin sayfasına yazılacak)"""
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    latest_data = df.tail(1)
+    
+    if not cycle_df.empty:
+        current_phase = cycle_df['Döngü_Fazı'].iloc[-1]
+        current_indicator = cycle_df['Bileşik_Gösterge'].iloc[-1]
+    else:
+        current_phase = "Belirsiz"
+        current_indicator = 0
+    
+    report = f"""
+📊 TÜRKİYE EKONOMİK DÖNGÜ ANALİZ RAPORU
+{'='*50}
+📅 Rapor Tarihi: {current_date}
+📈 Güncel Ekonomik Faz: {current_phase}
+🎯 Bileşik Gösterge Değeri: {current_indicator:.2f}
+📋 GÜNCEL EKONOMİK GÖSTERGELER
+{'-'*30}
+"""
+    
+    for col in df.columns[:10]:
+        if col in latest_data.columns:
+            latest_val = latest_data[col].iloc[0]
+            if pd.notna(latest_val):
+                report += f"• {col}: {latest_val:.2f}\n"
+    
+    if phase_stats:
+        report += f"\n🔄 EKONOMİK DÖNGÜ FAZ ANALİZİ\n{'-'*30}\n"
+        for phase, stats in phase_stats.items():
+            report += f"\n📌 {phase.upper()} DÖNEMİ:\n"
+            report += f"  • Toplam Süre: {stats.get('toplam_süre_ay', 0)} ay\n"
+            report += f"  • Gözlem Sayısı: {stats.get('dönem_sayısı', 0)}\n"
+            for indicator in ['GSYH Büyüme (%)', 'İşsizlik Oranı (%)', 'TÜFE Yıllık (%)']:
+                if indicator in stats.get('istatistikler', {}):
+                    avg_val = stats['istatistikler'][indicator]['ortalama']
+                    report += f"  • {indicator}: {avg_val:.2f}\n"
+    
+    report += f"""
+💡 EKONOMİK DÖNGÜ ÖNERİLERİ
+{'-'*30}
+"""
+    
+    if current_phase == "Genişleme":
+        report += "✅ Yatırım fırsatları, istihdam artışı, enflasyon baskısı izlenmeli.\n"
+    elif current_phase == "Tepe":
+        report += "⚠️ Aşırı ısınma riski, temkinli duruş, faiz artışı olası.\n"
+    elif current_phase == "Daralma":
+        report += "📉 Nakit yönetimi, maliyet kontrolü, yatırımlar ertelenebilir.\n"
+    elif current_phase == "İyileşme":
+        report += "🔄 Erken yatırım fırsatları, kademeli iyileşme, iyimserlik artıyor.\n"
+    
+    return report.strip()
+
+# ==============================
+# 7. MATPLOTLIB ÖZET GRAFİK (DEĞİŞİKLİK YOK)
+# ==============================
+def create_summary_matplotlib_chart(df, cycle_df, save_path=None):
+    """Matplotlib ile özet grafik oluşturur (PNG kaydı opsiyonel)"""
+    fig, axes = plt.subplots(2, 2, figsize=(20, 15))
+    fig.suptitle('🇹🇷 Türkiye Ekonomik Döngü Özeti', fontsize=20, fontweight='bold')
+    
+    # 1. Bileşik gösterge
+    if not cycle_df.empty:
+        ax = axes[0, 0]
+        ax.plot(cycle_df.index, cycle_df['Bileşik_Gösterge'], linewidth=3, color='black', label='Bileşik Gösterge')
+        ax.axhline(y=0, color='gray', linestyle='--', alpha=0.7)
+        ax.set_title('Bileşik Ekonomik Gösterge', fontsize=14, fontweight='bold')
+        ax.set_ylabel('Gösterge Değeri')
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        
+        phase_colors = {'Genişleme': 'green', 'Tepe': 'orange', 'Daralma': 'red', 'İyileşme': 'blue'}
+        current_phase = cycle_df['Döngü_Fazı'].iloc[0]
+        start_idx = 0
+        for i, phase in enumerate(cycle_df['Döngü_Fazı']):
+            if phase != current_phase or i == len(cycle_df) - 1:
+                end_idx = i if i != len(cycle_df) - 1 else i + 1
+                ax.axvspan(cycle_df.index[start_idx], cycle_df.index[min(end_idx, len(cycle_df)-1)],
+                           alpha=0.2, color=phase_colors.get(current_phase, 'gray'))
+                current_phase = phase
+                start_idx = i
+    
+    # 2. GSYH & İşsizlik
+    ax = axes[0, 1]
+    if 'GSYH Büyüme (%)' in df.columns:
+        ax.plot(df.index, df['GSYH Büyüme (%)'], label='GSYH Büyüme (%)', color='blue', linewidth=2)
+    
+    if 'İşsizlik Oranı (%)' in df.columns:
+        ax2 = ax.twinx()
+        ax2.plot(df.index, df['İşsizlik Oranı (%)'], label='İşsizlik (%)', color='red', linewidth=2)
+        ax2.set_ylabel('İşsizlik Oranı (%)', color='red')
+        ax2.tick_params(axis='y', labelcolor='red')
+    
+    ax.set_title('GSYH Büyüme & İşsizlik Oranı', fontsize=14, fontweight='bold')
+    ax.set_ylabel('GSYH Büyüme (%)', color='blue')
+    ax.tick_params(axis='y', labelcolor='blue')
+    ax.grid(True, alpha=0.3)
+    
+    if 'GSYH Büyüme (%)' in df.columns or 'İşsizlik Oranı (%)' in df.columns:
+        ax.legend(loc='upper left')
+        if 'İşsizlik Oranı (%)' in df.columns:
+            ax2.legend(loc='upper right')
+    
+    # 3. Enflasyon & Faiz
+    ax = axes[1, 0]
+    if 'TÜFE Yıllık (%)' in df.columns:
+        ax.plot(df.index, df['TÜFE Yıllık (%)'], label='TÜFE Yıllık (%)', color='orange', linewidth=2)
+    elif 'TÜFE Aylık (%)' in df.columns:
+        ax.plot(df.index, df['TÜFE Aylık (%)'], label='TÜFE Aylık (%)', color='orange', linewidth=2)
+    
+    if 'Politika Faizi (%)' in df.columns:
+        ax.plot(df.index, df['Politika Faizi (%)'], label='Politika Faizi (%)', color='purple', linewidth=2)
+    
+    ax.set_title('Enflasyon & Politika Faizi', fontsize=14, fontweight='bold')
+    ax.set_ylabel('Oran (%)')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    # 4. Güven endeksleri
+    ax = axes[1, 1]
+    if 'Tüketici Güven Endeksi' in df.columns:
+        ax.plot(df.index, df['Tüketici Güven Endeksi'], label='Tüketici Güveni', color='green', linewidth=2)
+    
+    if 'Reel Kesim Güven Endeksi' in df.columns:
+        ax.plot(df.index, df['Reel Kesim Güven Endeksi'], label='Reel Kesim Güveni', color='brown', linewidth=2)
+    
+    ax.set_title('Güven Endeksleri', fontsize=14, fontweight='bold')
+    ax.set_ylabel('Endeks')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    
+    plt.show()
+
+def save_composite_plot_png(cycle_df, path):
+    """Bileşik göstergeyi tek başına PNG olarak kaydeder."""
+    if cycle_df.empty:
+        return
+    
+    plt.figure(figsize=(16,6))
+    plt.plot(cycle_df.index, cycle_df['Bileşik_Gösterge'], linewidth=3)
+    plt.axhline(y=0, linestyle='--')
+    plt.title('Bileşik Ekonomik Gösterge')
+    plt.ylabel('Değer')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(path, dpi=150, bbox_inches='tight')
+    plt.close()
+
+# ==============================
+# 8. ANA UYGULAMA (DEĞİŞİKLİK YOK)
+# ==============================
+def main():
+    """Ana uygulama fonksiyonu"""
+    print("🚀 Türkiye Ekonomik Döngü Analizi Başlatılıyor...\n")
+    
+    # 1. Verileri çek
+    print("📊 TCMB EVDS verilerinden ekonomik göstergeler çekiliyor...")
+    df_economic, failed = fetch_economic_data(series_config)
+    
+    if df_economic.empty:
+        print("❌ Veri çekme başarısız. Lütfen API anahtarını ve seri kodlarını kontrol edin.")
+        return None, None, None
+    
+    if failed:
+        print("\n⚠️ Aşağıdaki göstergeler için veri alınamadı:")
+        for f in failed:
+            print("   -", f)
+    
+    # 2. Döngü analizi
+    print("\n🔄 Ekonomik döngü analizi yapılıyor...")
+    cycle_df = detect_economic_cycles(df_economic)
+    
+    # 3. Faz analizi
+    print("📈 Döngü fazları analiz ediliyor...")
+    phase_stats = analyze_cycle_characteristics(df_economic, cycle_df)
+    
+    # 4. Rapor metni
+    print("\n📝 Rapor metni hazırlanıyor...")
+    report_text = generate_economic_report(df_economic, cycle_df, phase_stats)
+    
+    # 5. Excel raporu kaydet (grafikleri ve rapor metnini de ekle)
+    print("\n💾 Excel raporu hazırlanıyor...")
+    excel_file = f"turkiye_ekonomik_dongu_analizi_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    
+    # Grafik dosyalarını geçici olarak kaydet
+    summary_png = "ozet_grafik.png"
+    composite_png = "bilesik_gosterge.png"
+    
+    try:
+        create_summary_matplotlib_chart(df_economic, cycle_df, save_path=summary_png)
+        save_composite_plot_png(cycle_df, composite_png)
+    except Exception as e:
+        print("⚠️ Grafik kaydetmede hata:", e)
+    
+    try:
+        with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
+            # Ana veriler
+            df_economic.to_excel(writer, sheet_name='Ekonomik_Veriler')
+            
+            # Döngü analizi
+            if not cycle_df.empty:
+                cycle_df.to_excel(writer, sheet_name='Dongu_Analizi')
+            
+            # Faz istatistikleri
+            phase_summary_data = {}
+            if phase_stats:
+                for phase, stats in phase_stats.items():
+                    phase_summary_data[phase] = {
+                        'Dönem Sayısı (Ay)': stats.get('dönem_sayısı', np.nan),
+                        'Toplam Süre (Ay)': stats.get('toplam_süre_ay', np.nan)
                     }
-                    sector_analysis.append(sector_summary)
-            pd.DataFrame(sector_analysis).to_excel(writer, sheet_name='SEKTÖREL ANALİZ', index=False)
-            # En iyi hisseler
-            top_investment = df.nlargest(20, 'YATIRIM SKORU')[
-                ['HİSSE KODU', 'SEKTÖR', 'YATIRIM SKORU', 'FİYAT', 'HEDEF FİYAT', 'YÜKSELİŞ POTANSİYELİ (%)', 'F/K', 'PD/DD', 'ROE (%)']
-            ]
-            top_investment.to_excel(writer, sheet_name='EN İYİ 20 YATIRIM', index=False)
-            # Ucuz hisseler
-            cheap_stocks = df[df['DEĞERLEME SKORU'] >= 70].nlargest(20, 'YATIRIM SKORU')[
-                ['HİSSE KODU', 'SEKTÖR','ÖDENMİŞ SERMAYE(M)', 'DEĞERLEME SKORU', 'FİYAT', 'HEDEF FİYAT', 'YÜKSELİŞ POTANSİYELİ (%)', 'F/K', 'PD/DD', 'ROE (%)']
-            ]
-            cheap_stocks.to_excel(writer, sheet_name='EN UCUZ 20 HİSSE', index=False)
-            # Sağlıklı hisseler
-            healthy_stocks = df[df['SAĞLIK SKORU'] >= 70].nlargest(20, 'YATIRIM SKORU')[
-                ['HİSSE KODU', 'SEKTÖR', 'SAĞLIK SKORU', 'FİYAT', 'HEDEF FİYAT', 'YÜKSELİŞ POTANSİYELİ (%)', 'ROE (%)', 'BORÇ ORAN(%)', 'LİKİT ORAN']
-            ]
-            healthy_stocks.to_excel(writer, sheet_name='EN SAĞLIKLI 20 HİSSE', index=False)
-            # Yüksek potansiyelli hisseler
-            high_potential = df[df['YÜKSELİŞ POTANSİYELİ (%)'] > 20].nlargest(20, 'YATIRIM SKORU')[
-                ['HİSSE KODU', 'SEKTÖR', 'YÜKSELİŞ POTANSİYELİ (%)', 'FİYAT', 'HEDEF FİYAT', 'YATIRIM SKORU', 'F/K', 'PD/DD', 'ROE (%)']
-            ]
-            high_potential.to_excel(writer, sheet_name='YÜKSEK POTANSİYELLİ 20', index=False)
-
-
-
-
-        # Formatlama
-        self.format_excel_advanced(filename)
-        print(f"✅ Excel dosyası oluşturuldu: {filename}")
-        # Colab için indirme
+                    
+                    if 'istatistikler' in stats:
+                        for indicator, values in stats['istatistikler'].items():
+                            if isinstance(values, dict) and 'ortalama' in values:
+                                phase_summary_data[phase][f'{indicator} (Ort.)'] = values['ortalama']
+                                phase_summary_data[phase][f'{indicator} (Std.)'] = values['std']
+                                phase_summary_data[phase][f'{indicator} (Min)'] = values['min']
+                                phase_summary_data[phase][f'{indicator} (Max)'] = values['max']
+                
+                if phase_summary_data:
+                    phase_summary_df = pd.DataFrame.from_dict(phase_summary_data, orient='index')
+                    phase_summary_df.to_excel(writer, sheet_name='Faz_Istatistikleri_Ozet')
+            
+            # Rapor metni sayfası
+            # Çok satırlı hücreye yazıyoruz
+            pd.DataFrame({"RAPOR": [report_text]}).to_excel(writer, sheet_name='Rapor_Metin', index=False)
+            
+            # Şimdilik writer'ı flush et
+            writer.book.create_sheet('Grafik_Ozet')
+            writer.book.create_sheet('Grafik_Bilesik')
+        
+        # openpyxl ile resimleri göm
+        wb = load_workbook(excel_file)
+        
+        # Özet grafik
+        if os.path.exists(summary_png):
+            ws_ozet = wb['Grafik_Ozet']
+            img1 = XLImage(summary_png)
+            img1.anchor = 'A1'
+            ws_ozet.add_image(img1)
+        
+        # Bileşik grafik
+        if os.path.exists(composite_png):
+            ws_bil = wb['Grafik_Bilesik']
+            img2 = XLImage(composite_png)
+            img2.anchor = 'A1'
+            ws_bil.add_image(img2)
+        
+        wb.save(excel_file)
+        print(f"✅ Excel dosyası kaydedildi: {excel_file}")
+        
+        # 6. Colab'den indir (sadece EXCEL)
         try:
             from google.colab import files
-            files.download(filename)
-        except:
-            print("⚠️ Dosya otomatik olarak indirilemedi. Lütfen manuel olarak indirin.")
-    def format_excel_advanced(self, filename):
-        """Excel dosyasını profesyonel formatta düzenler"""
-        try:
-            wb = openpyxl.load_workbook(filename)
-            # Tüm sayfalar için formatlama
-            for sheet_name in wb.sheetnames:
-                ws = wb[sheet_name]
-                # Başlık formatı
-                header_font = Font(name='Arial', size=10, bold=True, color="FFFFFF")
-                header_fill = PatternFill(start_color="2F5597", end_color="2F5597", fill_type="solid")
-                header_alignment = Alignment(horizontal="center", vertical="center")
-                # Veri formatı
-                data_font = Font(name='Arial', size=9)
-                data_alignment = Alignment(horizontal="right", vertical="center")
-                # Başlıkları formatla
-                for cell in ws[1]:
-                    cell.font = header_font
-                    cell.fill = header_fill
-                    cell.alignment = header_alignment
-                # Verileri formatla
-                for row in ws.iter_rows(min_row=2):
-                    for i, cell in enumerate(row):
-                        cell.font = data_font
-                        # Sayısal sütunları formatla
-                        if isinstance(cell.value, (int, float)):
-                            if 'SKORU' in str(ws.cell(row=1, column=i+1).value):
-                                cell.number_format = '#,##0'
-                            elif '%' in str(ws.cell(row=1, column=i+1).value):
-                                cell.number_format = '#,##0.00'
-                            elif i >= 15:  # Finansal veriler
-                                cell.number_format = '#,##0.0'
-                            else:
-                                cell.number_format = '#,##0.00'
-                            cell.alignment = data_alignment
-                        else:
-                            cell.alignment = Alignment(horizontal="center", vertical="center")
-                # Sütun genişlikleri
-                if sheet_name == 'YATIRIM ANALİZİ':
-                    column_widths = {
-                        'A': 12,  # HİSSE KODU
-                        'B': 25,  # SEKTÖR
-                        'C': 15,  # ANALİZ TARİHİ (varsa)
-                        'D': 10,  # FİYAT
-                        'E': 12,  # HEDEF FİYAT
-                        'F': 18,  # YÜKSELİŞ POTANSİYELİ
-                        'G': 10,  # DÖNEM
-                        'H': 15,  # YATIRIM SKORU
-                        'I': 18,  # YATIRIM KATEGORİ
-                        'J': 15,  # SAĞLIK SKORU
-                        'K': 18,  # SAĞLIK KATEGORİ
-                        'L': 18,  # DEĞERLEME SKORU
-                        'M': 20,  # DEĞERLEME KATEGORİ
-                        'N': 18,  # GELECEK SKORU
-                        'O': 20,  # GELECEK KATEGORİ
-                        'P': 12,  # EPS
-                        'Q': 15,  # DEFTER DEĞERİ
-                        'R': 20,  # NET SATIŞ
-                        'S': 15,  # NET KAR
-                        'T': 20,  # TOPLAM VARLIK
-                        'U': 15,  # ÖZKAYNAK
-                        'V': 20,  # FAALİYET KARI
-                        'W': 10,  # ROE
-                        'X': 10,  # ROA
-                        'Y': 12,  # ROIC
-                        'Z': 15,  # NET KAR MARJI
-                        'AA': 15, # BRÜT KAR MARJI
-                        'AB': 15, # FAALİYET KAR MARJI
-                        'AC': 15, # EBITDA MARJI
-                        'AD': 15, # BORÇ ORANI
-                        'AE': 15, # LİKİT ORAN
-                        'AF': 15, # NAKİT ORAN
-                        'AG': 15, # ASİT TEST
-                        'AH': 12, # PD/DD
-                        'AI': 10, # F/K
-                        'AJ': 12, # EV/EBITDA
-                        'AK': 15, # FİYAT TRENDİ
-                        'AL': 50, # HEDEF FİYAT AÇIKLAMA
-                        'AM': 50  # UYARILAR
-                    }
-                    # Eğer ANALİZ TARİHİ sütunu varsa diğer sütunları kaydır
-                    if 'ANALİZ TARİHİ' in [cell.value for cell in ws[1]]:
-                        for col in list(column_widths.keys())[3:]:
-                            column_widths[col] = column_widths[chr(ord(col)-1)]
-                    for col, width in column_widths.items():
-                        if col in ws.column_dimensions:
-                            ws.column_dimensions[col].width = width
-                # Koşullu formatlama - Yatırım Skoru
-                if sheet_name == 'YATIRIM ANALİZİ':
-                    investment_col = None
-                    for i, cell in enumerate(ws[1], 1):
-                        if cell.value == 'YATIRIM SKORU':
-                            investment_col = openpyxl.utils.get_column_letter(i)
-                            break
-                    if investment_col:
-                        # Renk skalası
-                        color_scale = ColorScaleRule(
-                            start_type='min', start_color='FF0000',
-                            mid_type='percentile', mid_value=50, mid_color='FFFF00',
-                            end_type='max', end_color='00FF00'
-                        )
-                        ws.conditional_formatting.add(f'{investment_col}2:{investment_col}{ws.max_row}', color_scale)
-            wb.save(filename)
-            print("✅ Excel formatları uygulandı")
+            files.download(excel_file)
+            print("📥 Excel dosyası indirme başlatıldı.")
         except Exception as e:
-            print(f"⚠️ Excel formatlama hatası: {str(e)}")
-# Analyzer ve BackTest instance'ları oluştur
-analyzer = AdvancedFinancialAnalyzer()
-print("✅ Gelişmiş Finansal Analiz hazır!")
+            print("💡 Google Colab dışında çalışıyorsunuz veya indirme engellendi. Dosya çalışma dizininde.")
+    except Exception as e:
+        print(f"❌ Excel raporu kaydedilirken hata oluştu: {e}")
+    
+    # 7. İnteraktif dashboard göster
+    print("\n📊 Ekonomik dashboard oluşturuluyor...")
+    dashboard_fig = create_economic_dashboard(df_economic, cycle_df)
+    if dashboard_fig:
+        dashboard_fig.show()
+    
+    # 8. Faz analizi grafiği
+    if phase_stats:
+        print("🎯 Döngü faz analizi grafiği oluşturuluyor...")
+        phase_fig = create_cycle_phase_analysis(phase_stats)
+        if phase_fig:
+            phase_fig.show()
+    
+    return df_economic, cycle_df, phase_stats
 
-# =============================================================================
-# 3. HİSSE LİSTESİ TANIMALAMA
-# =============================================================================
-bist500_tickers = ["A1CAP","A1YEN","ACSEL","ADEL","ADESE","ADGYO​","AEFES​","AFYON​","AGESA","AGHOL","AGROT","AGYO","AHGAZ","AKBNK","AKCNS","AKENR","AKFGY","AKFIS","AKFYE",
-"AKGRT","AKMGY","AKSA","AKSEN","AKSGY","AKSUE","AKYHO","ALARK","ALBRK","ALCAR","ALCTL","ALFAS","ALGYO","ALKA","ALKIM","ALKLC","ALMAD","ALTINY","ALVES","ANELE","ANGEN","ANHYT",
-"ANSGR","ARASE","ARCLK","ARDYZ","ARENA","ARMGD","ARSAN","ARTMS","ARZUM","ASELS","ASGYO","ASTOR","ASUZU","ATAGY","ATAKP","ATATP","ATEKS","ATLAS","ATSYH","AVGYO","AVHOL","AVOD",
-"AVPGY","AVTUR","AYCES","AYDEM","AYEN","AYES","AYGAZ","AZTEK","BAGFS","BAHKM","BAKAB","BALAT","BALSU","BANVT","BARMA","BASCM​","BASGZ","BAYRK","BEGYO","BERA","BEYAZ","BFREN",
-"BIENY","BIGCH","BIMAS","BINBN","BINHO","BIOEN","BIZIM","BJKAS","BLCYT","BMSCH","BMSTL","BNTAS","BOBET","BORLS","BORSK","BOSSA","BRISA","BRKO","BRKSN","BRKVY","BRLSM",
-"BRMEN","BRSAN","BRYAT","BSOKE","BTCIM","BUCIM","BURCE","BURVA","BVSAN","BYDNR","CANTE","CASA","CATES","CCOLA","CELHA","CEMAS","CEMTS","CEOEM","CEMZY","CGCAM",
-"CIMSA​","CLEBI","CMBTN","CMENT","CONSE","COSMO","CRDFA","CRFSA","CUSAN","CVKMD","CWENE","DAGHL","DAGI","DAPGM","DARDL","DENGE","DERHL","DERIM","DESA","DCTTR","DSTFK",
-"DESPC","DEVA","DGATE","DGGYO","DGNMO","DIRIT","DITAS","DMRGD","DMSAS","DNISI","DOAS","DOBUR","DOCO","DOFER","DOGUB","DOHOL","DOKTA","DURDO","DYOBY","DURKN",
-"DZGYO","EBEBK","ECILC","ECZYT","EDATA","EDIP","EFORC","EGEGY","EGEEN","EGEPO","EGGUB","EGPRO","EGSER","EKGYO","EKIZ","EKOS","EKSUN","ELITE","EMKEL","EMNIS","ENERY","ENDEA",
-"ENJSA","ENKAI","ENSRI","ENTRA","EPLAS","ERBOS","ERCB","EREGL","ERSU","ESCAR","ESCOM","ESEN","ETILR","ETYAT","EUHOL","EUKYO","EUPWR","EUREN","EUYO","EYGYO",
-"FADE","FENER","FLAP","FMIZP","FONET","FORMT","FORTE","FRIGO","FROTO","FZLGY","GARAN","GARFA","GEDIK","GEDZA","GENIL","GENTS","GEREL","GESAN","GIPTA",
-"GLBMD","GLCVY","GLRMK","GLRYH","GLYHO","GMTAS","GOKNR","GOLTS","GOODY","GOZDE","GRNYO","GRSEL","GRTHO","GRTRK","GSDDE","GSDHO​","GSRAY","GUBRF","GUNDG","GWIND","GZNMI","HALKB",
-"HATEK","HATSN","HDFGS","HEDEF","HEKTS","HKTM","HLGYO","HOROZ","HRKET","HTTBT","HUBVC","HUNER","HURGZ","ICBCT​","ICUGS","ICUGS","IDGYO","IEYHO","IHAAS","IHEVA​",
-"IHGZT","IHLAS","IHLGM","IHYAY","IMASM","INDES","INFO","INGRM","INTEM​","INVEO","INVES","IPEKE","ISATR","ISBIR","​ISCTR","ISDMR","ISFIN","ISGSY","ISGYO",
-"ISKPL","ISKUR","ISMEN","ISSEN","ISYAT","IZENR","IZFAS","IZINV","IZMDC","JANTS","KAPLM","KAREL","KARSN","KARTN","KARYE","KATMR","KAYSE","KBORU","KCAER",
-"KCHOL","KENT","KERVN","KERVT​","KFEIN","KGYO","KIMMR","KLGYO","KLKIM","KLMSN","KLNMA","KLRHO","KLSER","KLSYN","KLYPV","KMPUR","KNFRT","KOCMT","KONKA","KONTR","KONYA",
-"KOPOL","KORDS","KOTON","KOZAA","KOZAL","KRDMA","KRDMB","KRDMD","KRGYO","KRONT","KRPLS","KRSTL","KRTEK","KRVGD","KSTUR","KTLEV","KTSKR","KUTPO","KUVVA","KUYAS",
-"KZBGY","KZGYO","LIDER","LIDFA","LILAK","LINK","LKMNH","LOGO","LRSHO","LUKSK","LYDHO","LYDYE","MAALT","MACKO","MAGEN","MAKIM","MAKTK","MANAS","MARBL","MARKA","MARTI","MAVI",
-"MEDTR","MEGAP","MEGMT","MEKAG","MEPET","MERCN","MERIT","MERKO​","METRO","METUR","MGROS","MHRGY","MIATK","MIPAZ","MMCAS","MNDRS","MNDTR","MOBTL","MPARK","MOBTL","MOGAN","MOPAS",
-"MRGYO","MRSHL","MSGYO","MTRKS","MTRYO","MZHLD","NATEN","NETAS","NIBAS","NTGAZ","NTHOL","NUGYO","NUHCM","OBAMS","OBASE","ODAS","ODINE","OFSYM","ONCSM","ONRYT", "ORCAY","ORGE",
-"ORMA","OSMEN","OSTIM","OTKAR","OTTO​","OYAKC","OYAYO","OYLUM","OYYAT","OZATD","OZGYO","OZKGY","OZRDN","OZSUB","OZYSR","PAGYO","PAMEL","PAPIL","PARSN","PASEU","PCILT","PATEK","PEHOL",
-"PEKGY","PENGD","PENTA","PETKM","PETUN","PGSUS","PINSU","PKART","PKENT","PLTUR","PNLSN","PNSUT​","POLHO","POLTK","PRDGS","PRKAB","PRKME","PRZMA",
-"PSDTC","PSGYO","QNBFB","QNBFL","QUAGR","RALYH","RAYSG","REEDR","RGYAS","RNPOL","RODRG","ROYAL","RTALB","RUBNS","RUZYE","RYGYO","RYSAS","SAFKR","SAHOL","SAMAT","SANEL",
-"SANFM","SANKO","SARKY","SASA","SAYAS","SDTTR","SEGMN","SEGYO​","SEKFK","SEKUR","SELEC","SELGD","SELVA","SERNT","SEYKM​","SILVR","SISE","SKBNK","SKTAS","SKYLP","SKYMD",
-"SMART​","SMRTG","SNGYO","SNICA","SNKRN","SNPAM","SODSN","SOKE","SOKM","SONME","SRVGY","SUMAS","SUNTK","SURGY","SUWEN","TABGD","TARKM","TATEN","TATGD",
-"TAVHL","TBORG","TCELL","TCKRC","TDGYO","TEKTU","TERA","TETMT","TEZOL","TGSAS","THYAO","TKFEN","TKNSA","TLMAN","TMPOL","TMSN","TNZTP​","TOASO","TRCAS","TRGYO",
-"TRILC","TSGYO","TSKB","TSPOR","TTKOM","TTRAK","TUCLK","TUKAS","TUPRS","TUREX","TURGG","TURSG","UFUK","ULAS","ULKER","ULUFA","ULUSE","ULUUN","UMPAS",
-"UNLU​","USAK","UZERB","VAKBN","VAKFN","VAKKO","VANGD​","VBTYZ","VERTU","VERUS","VESBE","VESTL","VKFYO","VKGYO","VKING","VSNMD","YAPRK","YATAS","YAYLA","YBTAS",
-"YEOTK","YESIL","YGGYO","YGYO​","YIGIT","YKBNK","YKSLN","YONGA","YUNSA","YYAPI","YYLGD","ZEDUR","ZOREN","ZRGYO"
-]
-bist30_tickers = [
-    "THYAO", "AKBNK", "GARAN", "ISCTR", "KCHOL", "TUPRS", "ARCLK", "BIMAS",
-    "SAHOL", "KOZAL", "SISE", "TAVHL", "TCELL", "TKFEN", "TOASO", "TRKCM",
-    "VESTL", "YKBNK", "PGSUS", "DOHOL", "EKGYO", "ENKAI", "FROTO", "HALKB",
-    "KONTR", "KRDMD", "MGROS", "PETKM", "VAKBN", "AEFES"
-]
-print("📋 Hisse listeleri hazır!")
-print(f"🔬 BIST30 listesi: {len(bist30_tickers)} hisse")
-print(f"🔬 BIST500 listesi: {len(bist500_tickers)} hisse")
-# =============================================================================
-# 4. HIZLI TEST BÖLÜMÜ
-# =============================================================================
-print("\n🚀 HIZLI TEST BAŞLIYOR...")
-print("=" * 50)
-quick_test = ["THYAO", "MACKO", "SASA"]
-async def quick_analysis():
-    results = await analyzer.batch_analyze(bist500_tickers, batch_size=3, max_concurrent=3)
-    return results
-test_results = await quick_analysis()
-if test_results:
-    print("\n✅ HIZLI TEST BAŞARILI!")
-    analyzer.display_results(test_results)
-    analyzer.plot_analysis(test_results)
-    analyzer.export_to_excel(test_results, "hisse_analizi.xlsx")
-else:
-    print("❌ Test başarısız - API bağlantısını kontrol edin")
+# ==============================
+# 9. EK ANALİZ FONKSİYONLARI (DEĞİŞİKLİK YOK)
+# ==============================
+def correlation_analysis(df):
+    """Göstergeler arası korelasyon analizi"""
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    if len(numeric_cols) > 1:
+        corr_matrix = df[numeric_cols].corr()
+        plt.figure(figsize=(15, 12))
+        mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
+        sns.heatmap(corr_matrix, mask=mask, annot=True, cmap='RdYlBu_r', center=0,
+                    square=True, linewidths=0.5, cbar_kws={"shrink": .8}, fmt='.2f')
+        plt.title('Ekonomik Göstergeler Korelasyon Analizi', fontsize=16, fontweight='bold')
+        plt.tight_layout()
+        plt.show()
+        return corr_matrix
+    else:
+        print("⚠️ Korelasyon analizi için yeterli sayısal sütun yok.")
+        return None
 
-# =============================================================================
-# 6. KULLANIM TALİMATLARI
-# =============================================================================
-print("""
-🎯 KULLANIM TALİMATLARI:
-========================
-1️⃣ KÜÇÜK TEST İÇİN:
-   results = await analyzer.batch_analyze(bist30_tickers[:10], batch_size=5, max_concurrent=2)
-   analyzer.display_results(results)
-   analyzer.plot_analysis(results)
-   analyzer.export_to_excel(results, "kucuk_test.xlsx")
-2️⃣ BÜYÜK ANALİZ İÇİN:
-   results = await analyzer.batch_analyze(bist30_tickers, batch_size=10, max_concurrent=3)
-   analyzer.display_results(results, top_n=30)
-   analyzer.plot_analysis(results)
-   analyzer.export_to_excel(results, "buyuk_analiz.xlsx")
-3️⃣ BİST500 TAM ANALİZ İÇİN:
-   results = await analyzer.batch_analyze(bist500_tickers, batch_size=20, max_concurrent=5)
-   analyzer.display_results(results, top_n=50)
-   analyzer.plot_analysis(results)
-   analyzer.export_to_excel(results, "bist500_tam_analiz.xlsx")
-4️⃣ ÖZEL HİSSE LİSTESİ İÇİN:
-   my_stocks = ["THYAO", "SASA", "KCHOL", "TUPRS", "ARCLK"]
-   results = await analyzer.batch_analyze(my_stocks, batch_size=5, max_concurrent=2)
-   analyzer.display_results(results)
-   analyzer.plot_analysis(results)
-   analyzer.export_to_excel(results, "ozel_listem.xlsx")
-5️⃣ TEK HİSSE DETAYLI ANALİZ İÇİN:
-   # Önce analiz et
-   results = await analyzer.batch_analyze(["THYAO"], batch_size=1, max_concurrent=1)
-   # Sonuçları göster
-   if results:
-       df = pd.DataFrame(results)
-       display(df.T)  # Transpoz gösterim
-       # Detaylı skorları yazdır
-       print("📊 SAĞLIK SKORU DETAYLARI:")
-       for key, value in results[0]['SAĞLIK SKORU']['details'].items():
-           print(f"  {key}: {value}")
-       print("\\n📊 DEĞERLEME SKORU DETAYLARI:")
-       for key, value in results[0]['DEĞERLEME SKORU']['details'].items():
-           print(f"  {key}: {value}")
-       print("\\n📊 GELECEK SKORU DETAYLARI:")
-       for key, value in results[0]['GELECEK SKORU']['details'].items():
-           print(f"  {key}: {value}")
-       print("\\n🎯 HEDEF FİYAT BİLGİLERİ:")
-       print(f"  Mevcut Fiyat: {results[0]['FİYAT']} TL")
-       print(f"  Hedef Fiyat: {results[0]['HEDEF FİYAT']} TL")
-       print(f"  Yükseliş Potansiyeli: %{results[0]['YÜKSELİŞ POTANSİYELİ (%)']}")
-       print(f"  Açıklama: {results[0]['HEDEF FİYAT AÇIKLAMA']}")
+def economic_forecasting(df, months_ahead=6):
+    """Basit trend bazlı tahmin"""
+    forecasts = {}
+    key_indicators = ['GSYH Büyüme (%)', 'İşsizlik Oranı (%)', 'TÜFE Yıllık (%)', 'Tüketici Güven Endeksi', 'BIST 100']
+    
+    print(f"\n🔮 {months_ahead} AY ÖNCESİ EKONOMİK GÖSTERGE TAHMİNLERİ")
+    print("=" * 60)
+    
+    for indicator in key_indicators:
+        if indicator in df.columns:
+            recent = df[indicator].dropna().tail(12)
+            if len(recent) >= 3:
+                x = np.arange(len(recent))
+                slope = np.polyfit(x, recent.values, 1)[0]
+                current_value = recent.iloc[-1]
+                forecast_value = current_value + slope * months_ahead
+                trend = "📈 YÜKSELME" if slope > 0.1 else ("📉 DÜŞME" if slope < -0.1 else "➡️ STABİL")
+                
+                forecasts[indicator] = {
+                    'mevcut_değer': current_value, 
+                    'tahmin_değer': forecast_value, 
+                    'trend_eğim': slope, 
+                    'trend_yön': trend
+                }
+                
+                print(f"\n📊 {indicator}\n   Mevcut: {current_value:.2f} | {months_ahead} Ay Sonra: {forecast_value:.2f} | Trend: {trend} ({slope:.3f})")
+    
+    if not forecasts:
+        print("\n⚠️ Tahmin yapılabilecek yeterli gösterge bulunamadı.")
+    
+    return forecasts
 
-- İlk çalıştırmada küçük listeyle başlayın
-- Önbellekleme sayesinde tekrar eden analizler hızlıdır
-- Rate limiting nedeniyle büyük listeler zaman alabilir
-- Backtest için geçmiş veriler kullanılır, bu nedenle sonuçlar geçmiş performansa dayanır
-- Mobil uygulama için bu kod bir API backend olarak kullanılabilir
-🎯 YATIRIM SKORU ANLAMI:
-- 80-100: ÇOK İYİ (Güçlü alım sinyali)
-- 60-79: İYİ (Alım düşünülebilir)
-- 40-59: ORTA (Nötr, izlenmeli)
-- 20-39: ZAYIF (Satış düşünülebilir)
-- 0-19: ÇOK ZAYIF (Kaçınılmalı)
-📈 DEĞERLEME ORANLARI DOĞRU MANTIĞI:
-- F/K: Düşük = Ucuz, Yüksek = Pahalı
-- PD/DD: Düşük = Ucuz, Yüksek = Pahalı
-- EV/EBITDA: Düşük = Ucuz, Yüksek = Pahalı """)
+# ==============================
+# 10. ÇALIŞTIR
+# ==============================
+if __name__ == "__main__":
+    print("=" * 80)
+    print("🇹🇷 TÜRKİYE EKONOMİK DÖNGÜ ANALİZ SİSTEMİ")
+    print("=" * 80)
+    print("📊 TCMB EVDS API ile kapsamlı ekonomik analiz")
+    print("🔄 Otomatik döngü tespiti ve fazlama")
+    print("📈 İnteraktif dashboard ve Excel içinde grafik/rapor")
+    print("=" * 80)
+    
+    # Ana analizi çalıştır
+    df_main, cycle_main, phase_stats_main = main()
+    
+    if df_main is not None and not df_main.empty:
+        print("""
+🎉 TÜRKİYE EKONOMİK DÖNGÜ ANALİZİ TAMAMLANDI!
+📁 Çıktılar:
+✅ Excel raporu (.xlsx) — veri, metin rapor, gömülü grafikler (ayrı sayfalarda)
+📊 İnteraktif Plotly dashboard
+📈 Matplotlib özet grafikleri (Excel'e de eklendi)
+        """)
+    else:
+        print("\n❌ Analiz tamamlanamadı. Lütfen yukarıdaki uyarıları kontrol edin.")
