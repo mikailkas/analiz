@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hisse Senedi Analiz Dashboard | Demo</title>
+    
+    <style>
+        /* Reset and base styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+            color: #1e293b;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            color: white;
+            padding: 20px 0;
+            margin-bottom: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(37, 99, 235, 0.3);
+        }
+        
+        .header h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            text-align: center;
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+        
+        /* Overview Cards */
+        .overview-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            border-left: 4px solid #2563eb;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+        
+        .card h3 {
+            color: #64748b;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+        
+        .card .value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 4px;
+        }
+        
+        .card .unit {
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+        
+        /* Charts Section */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        
+        .chart-container {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            min-height: 400px;
+        }
+        
+        .chart-title {
+            font-size: 1.4rem;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .chart-title::before {
+            content: "📊";
+            font-size: 1.2rem;
+        }
+        
+        /* Table */
+        .table-container {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        
+        th {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            color: white;
+            padding: 12px 8px;
+            text-align: left;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            letter-spacing: 0.5px;
+        }
+        
+        td {
+            padding: 12px 8px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        tr:hover {
+            background-color: #f8fafc;
+        }
+        
+        /* Score badges */
+        .score-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            display: inline-block;
+            min-width: 60px;
+            text-align: center;
+        }
+        
+        .score-excellent {
+            background: linear-gradient(135deg, #16a34a, #22c55e);
+            color: white;
+        }
+        
+        .score-good {
+            background: linear-gradient(135deg, #0891b2, #06b6d4);
+            color: white;
+        }
+        
+        .score-medium {
+            background: linear-gradient(135deg, #d97706, #f59e0b);
+            color: white;
+        }
+        
+        .score-weak {
+            background: linear-gradient(135deg, #dc2626, #ef4444);
+            color: white;
+        }
+        
+        .stock-code {
+            font-weight: 700;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            letter-spacing: 0.5px;
+        }
+        
+        .sector-tag {
+            background: #e2e8f0;
+            color: #64748b;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .performance-positive {
+            color: #16a34a;
+            font-weight: 600;
+        }
+        
+        .performance-negative {
+            color: #dc2626;
+            font-weight: 600;
+        }
+        
+        /* Simple chart placeholder */
+        .chart-placeholder {
+            height: 300px;
+            background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+            border: 2px dashed #94a3b8;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            color: #64748b;
+            font-size: 1.1rem;
+            text-align: center;
+        }
+        
+        .chart-placeholder::before {
+            content: "📈";
+            font-size: 3rem;
+            margin-bottom: 10px;
+        }
+        
+        /* Controls */
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        input, select {
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            background: white;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+        
+        button {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .overview-cards {
+                grid-template-columns: 1fr;
+            }
+            
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .controls {
+                flex-direction: column;
+            }
+            
+            table {
+                font-size: 0.8rem;
+            }
+            
+            th, td {
+                padding: 8px 4px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>📊 Hisse Senedi Analiz Dashboard</h1>
+            <p>Modern finansal analiz ve görselleştirme paneli</p>
+        </div>
+        
+        <!-- Overview Cards -->
+        <div class="overview-cards">
+            <div class="card">
+                <h3>Toplam Analiz Edilen</h3>
+                <div class="value" id="totalStocks">15</div>
+                <div class="unit">Hisse Senedi</div>
+            </div>
+            <div class="card">
+                <h3>Ortalama Yatırım Skoru</h3>
+                <div class="value" id="avgScore">66.8</div>
+                <div class="unit">/100</div>
+            </div>
+            <div class="card">
+                <h3>En İyi Performans</h3>
+                <div class="value" id="topPerformer">THYAO</div>
+                <div class="unit">85.2/100</div>
+            </div>
+            <div class="card">
+                <h3>Ortalama Hedef Getiri</h3>
+                <div class="value" id="avgReturn">18.6</div>
+                <div class="unit">%</div>
+            </div>
+        </div>
+        
+        <!-- Charts Section -->
+        <div class="charts-grid">
+            <div class="chart-container">
+                <div class="chart-title">Yatırım Skoru Dağılımı</div>
+                <div class="chart-placeholder">
+                    <div>Histogram grafik ile skorların dağılımı</div>
+                    <small>Chart.js ile interaktif grafik</small>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <div class="chart-title">Sektörel Karşılaştırma</div>
+                <div class="chart-placeholder">
+                    <div>Sektörlere göre ortalama skorlar</div>
+                    <small>Yatay çubuk grafik</small>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <div class="chart-title">Risk-Getiri Analizi</div>
+                <div class="chart-placeholder">
+                    <div>ROE vs F/K scatter plot</div>
+                    <small>İnteraktif dağılım grafiği</small>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <div class="chart-title">Hedef Fiyat Analizi</div>
+                <div class="chart-placeholder">
+                    <div>Mevcut vs Hedef fiyat karşılaştırması</div>
+                    <small>Çubuk grafik karşılaştırması</small>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Table Section -->
+        <div class="table-container">
+            <div class="chart-title">🏆 En İyi 10 Hisse Senedi</div>
+            
+            <!-- Controls -->
+            <div class="controls">
+                <input type="text" placeholder="🔍 Hisse kodu ara..." id="searchInput">
+                <select id="sectorFilter">
+                    <option value="">🏭 Tüm Sektörler</option>
+                    <option value="ULAŞTIRMA">ULAŞTIRMA</option>
+                    <option value="BANKALAR">BANKALAR</option>
+                    <option value="KIMYA PLASTİK">KIMYA PLASTİK</option>
+                    <option value="SAVUNMA">SAVUNMA</option>
+                </select>
+                <button onclick="refreshData()">🔄 Verileri Yenile</button>
+                <button onclick="toggleTheme()">🌙 Tema</button>
+            </div>
+            
+            <table id="stocksTable">
+                <thead>
+                    <tr>
+                        <th>Sıra</th>
+                        <th>Hisse Kodu</th>
+                        <th>Sektör</th>
+                        <th>Yatırım Skoru</th>
+                        <th>Fiyat (₺)</th>
+                        <th>Hedef Fiyat</th>
+                        <th>Potansiyel (%)</th>
+                        <th>ROE (%)</th>
+                        <th>F/K</th>
+                        <th>PD/DD</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <!-- Data will be populated by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script>
+        // Sample data
+        const stockData = [
+            {
+                "code": "THYAO",
+                "sector": "ULAŞTIRMA",
+                "price": 85.50,
+                "targetPrice": 102.60,
+                "potential": 20.0,
+                "score": 85.2,
+                "roe": 15.8,
+                "pe": 8.5,
+                "pb": 1.2
+            },
+            {
+                "code": "SASA",
+                "sector": "KIMYA PLASTİK",
+                "price": 28.40,
+                "targetPrice": 36.80,
+                "potential": 29.6,
+                "score": 78.5,
+                "roe": 18.3,
+                "pe": 6.2,
+                "pb": 0.9
+            },
+            {
+                "code": "ARCLK",
+                "sector": "DAYANIKLI TÜKETİM",
+                "price": 42.15,
+                "targetPrice": 54.20,
+                "potential": 28.6,
+                "score": 72.8,
+                "roe": 12.7,
+                "pe": 9.8,
+                "pb": 1.4
+            },
+            {
+                "code": "ASELS",
+                "sector": "SAVUNMA",
+                "price": 125.60,
+                "targetPrice": 155.30,
+                "potential": 23.6,
+                "score": 76.3,
+                "roe": 19.2,
+                "pe": 7.8,
+                "pb": 1.6
+            },
+            {
+                "code": "TCELL",
+                "sector": "HABERLEŞME",
+                "price": 48.90,
+                "targetPrice": 58.70,
+                "potential": 20.0,
+                "score": 69.8,
+                "roe": 16.5,
+                "pe": 9.2,
+                "pb": 1.5
+            },
+            {
+                "code": "KCHOL",
+                "sector": "HOLDİNG",
+                "price": 156.80,
+                "targetPrice": 188.20,
+                "potential": 20.0,
+                "score": 68.5,
+                "roe": 11.2,
+                "pe": 12.5,
+                "pb": 1.8
+            },
+            {
+                "code": "AKBNK",
+                "sector": "BANKALAR",
+                "price": 52.20,
+                "targetPrice": 65.25,
+                "potential": 25.0,
+                "score": 65.8,
+                "roe": 14.5,
+                "pe": 7.2,
+                "pb": 1.1
+            },
+            {
+                "code": "TUPRS",
+                "sector": "KIMYA PLASTİK",
+                "price": 89.75,
+                "targetPrice": 98.50,
+                "potential": 9.7,
+                "score": 62.5,
+                "roe": 16.8,
+                "pe": 11.2,
+                "pb": 2.1
+            },
+            {
+                "code": "GARAN",
+                "sector": "BANKALAR",
+                "price": 88.90,
+                "targetPrice": 105.60,
+                "potential": 18.8,
+                "score": 61.2,
+                "roe": 13.8,
+                "pe": 8.9,
+                "pb": 1.3
+            },
+            {
+                "code": "BIMAS",
+                "sector": "TOPTAN PARAKENDE",
+                "price": 385.50,
+                "targetPrice": 425.80,
+                "potential": 10.5,
+                "score": 58.8,
+                "roe": 22.5,
+                "pe": 15.8,
+                "pb": 3.2
+            }
+        ];
+        
+        // Global variables
+        let filteredData = [...stockData];
+        let currentTheme = 'light';
+        
+        // Initialize dashboard
+        function initDashboard() {
+            updateOverviewCards();
+            populateTable();
+            setupEventListeners();
+        }
+        
+        // Update overview cards
+        function updateOverviewCards() {
+            const totalStocks = filteredData.length;
+            const avgScore = totalStocks > 0 ? 
+                (filteredData.reduce((sum, stock) => sum + stock.score, 0) / totalStocks).toFixed(1) : 0;
+            const topPerformer = filteredData.reduce((prev, current) => 
+                (prev.score > current.score) ? prev : current, {});
+            const avgReturn = totalStocks > 0 ?
+                (filteredData.reduce((sum, stock) => sum + stock.potential, 0) / totalStocks).toFixed(1) : 0;
+            
+            document.getElementById('totalStocks').textContent = totalStocks;
+            document.getElementById('avgScore').textContent = avgScore;
+            document.getElementById('topPerformer').textContent = topPerformer.code || '---';
+            document.getElementById('avgReturn').textContent = avgReturn;
+        }
+        
+        // Populate table
+        function populateTable() {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            
+            // Sort by score
+            const sortedData = [...filteredData].sort((a, b) => b.score - a.score);
+            
+            sortedData.slice(0, 10).forEach((stock, index) => {
+                const row = document.createElement('tr');
+                
+                const scoreClass = getScoreClass(stock.score);
+                const potentialClass = stock.potential > 0 ? 'performance-positive' : 'performance-negative';
+                
+                row.innerHTML = `
+                    <td><strong>${index + 1}</strong></td>
+                    <td><span class="stock-code">${stock.code}</span></td>
+                    <td><span class="sector-tag">${stock.sector}</span></td>
+                    <td><span class="score-badge ${scoreClass}">${stock.score.toFixed(1)}</span></td>
+                    <td>${stock.price.toFixed(2)} ₺</td>
+                    <td>${stock.targetPrice.toFixed(2)} ₺</td>
+                    <td class="${potentialClass}">${stock.potential.toFixed(1)}%</td>
+                    <td class="performance-positive">${stock.roe.toFixed(1)}%</td>
+                    <td>${stock.pe.toFixed(1)}</td>
+                    <td>${stock.pb.toFixed(1)}</td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+        }
+        
+        // Get score class
+        function getScoreClass(score) {
+            if (score >= 80) return 'score-excellent';
+            if (score >= 60) return 'score-good';
+            if (score >= 40) return 'score-medium';
+            return 'score-weak';
+        }
+        
+        // Filter stocks
+        function filterStocks() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const selectedSector = document.getElementById('sectorFilter').value;
+            
+            filteredData = stockData.filter(stock => {
+                const matchesSearch = stock.code.toLowerCase().includes(searchTerm);
+                const matchesSector = !selectedSector || stock.sector === selectedSector;
+                return matchesSearch && matchesSector;
+            });
+            
+            updateOverviewCards();
+            populateTable();
+        }
+        
+        // Setup event listeners
+        function setupEventListeners() {
+            document.getElementById('searchInput').addEventListener('input', filterStocks);
+            document.getElementById('sectorFilter').addEventListener('change', filterStocks);
+        }
+        
+        // Refresh data
+        function refreshData() {
+            // Simulate data refresh
+            alert('✅ Veriler yenilendi! (Demo sürümünde simüle edildi)');
+            filteredData = [...stockData];
+            updateOverviewCards();
+            populateTable();
+        }
+        
+        // Toggle theme
+        function toggleTheme() {
+            const body = document.body;
+            if (currentTheme === 'light') {
+                body.style.background = 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)';
+                body.style.color = '#f1f5f9';
+                currentTheme = 'dark';
+                alert('🌙 Koyu tema aktif edildi!');
+            } else {
+                body.style.background = 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)';
+                body.style.color = '#1e293b';
+                currentTheme = 'light';
+                alert('☀️ Açık tema aktif edildi!');
+            }
+        }
+        
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', initDashboard);
+    </script>
+</body>
+</html>
